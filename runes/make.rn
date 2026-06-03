@@ -1,0 +1,37 @@
+export const package = {
+  name: "make"
+  version: "4.4.1"
+  summary: "GNU Make build automation tool"
+  homepage: "https://www.gnu.org/software/make/"
+  license: "GPL-3.0-or-later"
+  targets: ["linux-x86_64-gnu" "macos-aarch64-darwin"]
+
+  sources: {
+    main: {
+      url: "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz"
+      sha256: "sha256:dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+    }
+  }
+
+  # The bootstrap seed: make is built first against the host compiler boundary, so it declares
+  # no managed build dependencies. Every other core userland rune depends on it.
+  deps: {
+    build: {}
+    runtime: []
+  }
+
+  bins: {
+    make: "bin/make"
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "make-4.4.1")
+  sh -c $"
+    set -eu
+    cd '($source_dir)'
+    ./configure --prefix='($ctx.prefix)' --disable-dependency-tracking
+    make
+    make install DESTDIR='($ctx.package_dir)'
+  "
+}

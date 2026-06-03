@@ -1,0 +1,39 @@
+export const package = {
+  name: "hello"
+  version: "2.12.1"
+  summary: "GNU Hello, the canonical example program"
+  homepage: "https://www.gnu.org/software/hello/"
+  license: "GPL-3.0-or-later"
+  targets: ["linux-x86_64-gnu" "macos-aarch64-darwin"]
+
+  sources: {
+    main: {
+      url: "https://ftp.gnu.org/gnu/hello/hello-2.12.1.tar.gz"
+      sha256: "sha256:8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20"
+    }
+  }
+
+  deps: {
+    build: { default: ["bash" "make" "coreutils" "sed" "grep" "gawk" "diffutils"] }
+    runtime: []
+  }
+
+  bins: {
+    hello: "bin/hello"
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "hello-2.12.1")
+  let libs = if ($ctx.target | str starts-with "macos-") { "-liconv" } else { "" }
+  # `--disable-nls` keeps GNU Hello off gettext/libintl, which the core tome does not package yet.
+  # `--disable-dependency-tracking` skips automake's compiler dep-mode probe (only useful for
+  # incremental rebuilds) — it is the standard one-shot packaging flag and avoids a brittle probe.
+  bash -c $"
+    set -eu
+    cd '($source_dir)'
+    LIBS='($libs)' ./configure --prefix='($ctx.prefix)' --disable-nls --disable-dependency-tracking
+    make
+    make install DESTDIR='($ctx.package_dir)'
+  "
+}
