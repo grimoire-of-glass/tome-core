@@ -14,7 +14,7 @@ export const package = {
   }
 
   deps: {
-    build: {}
+    build: { default: ["make" "coreutils" "sed" "grep" "gawk" "diffutils"] }
     runtime: []
   }
 
@@ -29,13 +29,12 @@ export def build [ctx] {
   sh -c $"
     set -eu
     cd '($source_dir)'
-    if ! ./configure --prefix='($ctx.prefix)' --without-bash-malloc; then
+    if ! ./configure --prefix='($ctx.prefix)' --without-bash-malloc --disable-dependency-tracking; then
       cat config.log
       exit 1
     fi
     make
-    make install
+    make install DESTDIR='($ctx.package_dir)'
+    cp '($ctx.package_dir)($ctx.prefix)/bin/bash' '($ctx.package_dir)($ctx.prefix)/bin/sh'
   "
-
-  cp ($ctx.package_dir | path join "bin" "bash") ($ctx.package_dir | path join "bin" "sh")
 }
