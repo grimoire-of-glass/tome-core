@@ -1,10 +1,10 @@
 export const package = {
   name: "diffutils"
-  version: "3.12.0"
+  version: "3.12"
   summary: "GNU diffutils file comparison tools"
   homepage: "https://www.gnu.org/software/diffutils/"
   license: "GPL-3.0-or-later"
-  targets: ["linux-x86_64-gnu" "macos-aarch64-darwin"]
+  targets: ["linux-x86_64-gnu" "linux-aarch64-gnu" "macos-x86_64-darwin" "macos-aarch64-darwin" "freebsd-x86_64-unknown" "freebsd-aarch64-unknown"]
 
   sources: {
     main: {
@@ -14,7 +14,7 @@ export const package = {
   }
 
   deps: {
-    build: { default: ["bash" "make" "coreutils" "sed" "grep" "gawk"] }
+    build: { default: ["bash" "make"] }
     runtime: []
   }
 
