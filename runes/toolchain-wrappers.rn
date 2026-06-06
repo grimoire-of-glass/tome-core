@@ -37,11 +37,12 @@ export def build [ctx] {
   mkdir ($ctx.package_dir | path join "libexec")
   mkdir ($ctx.package_dir | path join "etc")
 
+  let is_macos = ($ctx.target | str starts-with "macos-")
   let wrappers = {
     cc: $"($env.CLANG_PREFIX)/bin/clang"
     "c++": $"($env.CLANG_PREFIX)/bin/clang++"
     ar: $"($env.LLVM_PREFIX)/bin/llvm-ar"
-    ld: $"($env.LLVM_PREFIX)/bin/lld"
+    ld: (if $is_macos { "/usr/bin/ld" } else { $"($env.LLVM_PREFIX)/bin/lld" })
     nm: $"($env.LLVM_PREFIX)/bin/llvm-nm"
     ranlib: $"($env.LLVM_PREFIX)/bin/llvm-ranlib"
     strip: $"($env.LLVM_PREFIX)/bin/llvm-strip"
