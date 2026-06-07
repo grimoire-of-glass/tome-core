@@ -1,0 +1,27 @@
+export const package = {
+  name: "cmake"
+  version: "4.3.3"
+  summary: "Cross-platform build system generator"
+  homepage: "https://cmake.org/"
+  license: "BSD-3-Clause"
+  sources: {
+    main: {
+      url: "https://cmake.org/files/v4.3/cmake-4.3.3.tar.gz"
+      sha256: "sha256:cba4bb7a44edf2877bb6f059932896383babe435b3a8c3b5df48b4aa41c9bb85"
+    }
+  }
+
+  deps: {
+    build: {}
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let nproc = $ctx.nproc
+  let source_dir = ($ctx.sources.main.dir | path join "cmake-4.3.3")
+  cd $source_dir
+  ./bootstrap --prefix=($ctx.prefix)
+  make -j($nproc)
+  make install DESTDIR=($ctx.package_dir)
+}
