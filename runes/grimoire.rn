@@ -15,7 +15,7 @@
 # then update COMMIT, the version date, and the sha256 below.
 
 # REPLACE before first build: the pinned commit and its tarball hash.
-const COMMIT = "81bba1b339df77113c4bec7e2147ca0083cff2fd"
+const COMMIT = "58b0188a7b8b90251a96b14513355594ac7ec949"
 
 export const package = {
   name: "grimoire"
@@ -26,8 +26,8 @@ export const package = {
 
   sources: {
     main: {
-      url: "https://codeload.github.com/grimoire-of-glass/grimoire/tar.gz/81bba1b339df77113c4bec7e2147ca0083cff2fd"
-      sha256: "sha256:674b9d5fb714a6ceb7d24177b77cb106ffed0cbc93090501f4e1981a5881cad7"
+      url: "https://codeload.github.com/grimoire-of-glass/grimoire/tar.gz/58b0188a7b8b90251a96b14513355594ac7ec949"
+      sha256: "sha256:b3be310e0ba5f15c5100b8c3e441a3f55efb6b5e93013c79e79c5d199e1daf45"
     }
   }
 
