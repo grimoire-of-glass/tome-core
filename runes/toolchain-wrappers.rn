@@ -6,9 +6,12 @@ export const package = {
   license: "MIT"
   sources: {}
 
+  # clang and llvm are runtime deps, not just build deps: the wrappers bake absolute store
+  # paths to their binaries, so this package's content (and content address) depends on
+  # theirs — and GC must never reap them while the wrappers are installed.
   deps: {
     build: { default: ["clang" "llvm"] }
-    runtime: []
+    runtime: ["clang" "llvm"]
   }
 
 }

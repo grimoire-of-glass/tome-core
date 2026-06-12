@@ -4,25 +4,34 @@ export const package = {
   summary: "Clang C/C++ compiler"
   homepage: "https://clang.llvm.org/"
   license: "Apache-2.0 WITH LLVM-exception"
-  sources: {
-    main: {
-      url: "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/llvm-project-19.1.0.src.tar.xz"
-      sha256: "sha256:5042522b49945bc560ff9206f25fb87980a9b89b914193ca00d961511ff0673c"
-    }
-  }
 
+  # Split member: built by llvm.rn's monorepo build; these globs claim clang's slice of
+  # that build's output. An individual glob may match nothing (build options vary what
+  # exists) — the build fails only if the member as a whole claims no files.
+  split_from: "llvm"
+  files: [
+    "bin/clang*"
+    "bin/c-index-test"
+    "bin/diagtool"
+    "bin/hmaptool"
+    "bin/git-clang-format"
+    "bin/scan-*"
+    "bin/analyze-build"
+    "bin/intercept-build"
+    "lib/clang/**"
+    "lib/libclang*"
+    "lib/cmake/clang/**"
+    "include/clang/**"
+    "include/clang-c/**"
+    "share/clang/**"
+    "share/scan-build/**"
+    "share/scan-view/**"
+    "libexec/**"
+  ]
+
+  # clang invokes lld (CLANG_DEFAULT_LINKER) and the llvm bin tools, which live in the
+  # parent package — a genuine runtime dependency, not just a build-time one.
   deps: {
-    build: { default: ["llvm" "compiler-rt" "cmake" "make" "python3"] }
-    runtime: []
+    runtime: ["llvm"]
   }
-
-}
-
-export def build [ctx] {
-  let nproc = $ctx.nproc
-  let source_dir = ($ctx.sources.main.dir | path join "llvm-project-19.1.0.src")
-  cd $source_dir
-  cmake -S clang -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=($ctx.prefix) -DLLVM_DIR=($env.LLVM_PREFIX | path join "lib/cmake/llvm") -DCLANG_DEFAULT_LINKER=lld -DLLVM_INCLUDE_TESTS=OFF
-  cmake --build build --parallel ($nproc)
-  cmake --install build --prefix ($ctx.package_dir)
 }

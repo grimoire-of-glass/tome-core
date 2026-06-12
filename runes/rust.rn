@@ -64,6 +64,10 @@ export const package = {
       rustdoc: "bin/rustdoc"
     }
   }
+
+  # rust-stage0 links the same bins (rustc/cargo/rustdoc); linked coexistence is never
+  # wanted. Store-only stage0 — its normal state as this package's build dep — is unaffected.
+  conflicts: ["rust-stage0"]
 }
 
 export def build [ctx] {
