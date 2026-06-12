@@ -6,10 +6,11 @@ export const package = {
   license: "GPL-3.0-or-later"
 
   # Build-dep fodder for packages whose build scripts use GNU sed syntax (toybox's
-  # genconfig uses `T` branches and GNU -E semantics). The macOS and FreeBSD ambient sed
-  # is BSD; declaring this package puts a managed GNU `sed` ahead of it on the build PATH
-  # — the managed answer, instead of leaking a host gsed. Linux hosts don't need it
-  # (ambient sed is GNU), hence the platform brackets at the declaring side.
+  # genconfig uses `T` branches and GNU -E semantics). Ships *only* `gsed`: the plain
+  # `sed` name belongs to the platform floor (host sed during bootstrap, toybox once the
+  # managed userland exists — whose core bin would shadow ours anyway), and a build that
+  # needs GNU semantics must say so by invoking gsed. The gawk model: the implementation
+  # answers to its implementation name.
   sources: {
     main: {
       url: "https://ftp.gnu.org/gnu/sed/sed-4.9.tar.xz"
@@ -27,11 +28,9 @@ export def build [ctx] {
   let source_dir = ($ctx.sources.main.dir | path join "sed-4.9")
   cd $source_dir
   # --disable-nls keeps it off gettext, like hello; dependency tracking is one-shot waste.
-  ./configure --prefix=($ctx.prefix) --disable-nls --disable-dependency-tracking
+  # --program-prefix=g installs the binary as `gsed` outright — no plain `sed` to contest
+  # the platform floor's.
+  ./configure --prefix=($ctx.prefix) --program-prefix=g --disable-nls --disable-dependency-tracking
   make -j ($ctx.nproc)
   make install DESTDIR=($ctx.package_dir)
-  # BSD-aware build scripts probe for `gsed` first (toybox's portability.sh does); ship
-  # the conventional alias beside the plain name — the gawk/awk pattern.
-  let bin = ($ctx.package_dir | path join ($ctx.prefix | str replace -r '^/' '') 'bin')
-  ^ln -s sed ($bin | path join 'gsed')
 }
