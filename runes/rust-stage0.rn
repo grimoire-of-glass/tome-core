@@ -1,0 +1,123 @@
+# The Rust stage0 toolchain: repackaged official release binaries.
+#
+# This is a fixed-output package — each target pins the official combined dist tarball from
+# static.rust-lang.org and the build merely re-stages its components. It exists solely to
+# bootstrap the `rust` package (built from source with these binaries as the stage0
+# compiler); depend on `rust`, not on this, for anything that just needs rustc/cargo.
+#
+# Targets are limited to triples Rust publishes host tools for. Notably absent:
+# linux-aarch64-musl (no official host tools — needs a cross build from a bootstrapped host).
+#
+# To fill in a hash:  curl -sL https://static.rust-lang.org/dist/<tarball>.sha256
+
+const VERSION = "1.96.0"
+
+# Grimoire target triple -> Rust target triple.
+const RUST_TRIPLES = {
+  "macos-aarch64-darwin": "aarch64-apple-darwin"
+  "macos-x86_64-darwin": "x86_64-apple-darwin"
+  "linux-x86_64-musl": "x86_64-unknown-linux-musl"
+  "linux-x86_64-gnu": "x86_64-unknown-linux-gnu"
+  "linux-aarch64-gnu": "aarch64-unknown-linux-gnu"
+  "freebsd-x86_64-unknown": "x86_64-unknown-freebsd"
+}
+
+export const package = {
+  name: "rust-stage0"
+  version: "1.96.0"
+  summary: "Official rustc/cargo binaries, repackaged to bootstrap the `rust` source build"
+  homepage: "https://www.rust-lang.org/"
+  license: "MIT OR Apache-2.0"
+  fixed_output: true
+  targets: [
+    "macos-aarch64-darwin"
+    "macos-x86_64-darwin"
+    "linux-x86_64-musl"
+    "linux-x86_64-gnu"
+    "linux-aarch64-gnu"
+    "freebsd-x86_64-unknown"
+  ]
+
+  # One pinned dist tarball per target; the platform filter means only the matching one is
+  # fetched and hashed, so each target's store hash covers exactly its own artifact.
+  sources: {
+    "macos-aarch64-darwin": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-aarch64-apple-darwin.tar.xz"
+      sha256: "sha256:f04a974f3579d3524f6b9bc6490a27c9fb358050e7cd8a641945f30bf24c1dce"
+      platform: "macos-aarch64-darwin"
+    }
+    "macos-x86_64-darwin": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-x86_64-apple-darwin.tar.xz"
+      sha256: "sha256:63a6d717a5e5392ac43f0a1593e7aabe6128c8685d318cb890603b1688cb3339"
+      platform: "macos-x86_64-darwin"
+    }
+    "linux-x86_64-musl": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-x86_64-unknown-linux-musl.tar.xz"
+      sha256: "sha256:8b4db404e24a82be906170b7b64bd69807e72e59d8371bac2a7f0ade75b39697"
+      platform: "linux-x86_64-musl"
+    }
+    "linux-x86_64-gnu": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz"
+      sha256: "sha256:c295047583a56238ea06b43f849f4b877fa12bfd4c7103f8d9a74c94c9c4e108"
+      platform: "linux-x86_64-gnu"
+    }
+    "linux-aarch64-gnu": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-aarch64-unknown-linux-gnu.tar.xz"
+      sha256: "sha256:371eadcca97062219cbd8593628eb5d2802bc370515d085fedce1b56b2baed57"
+      platform: "linux-aarch64-gnu"
+    }
+    "freebsd-x86_64-unknown": {
+      url: "https://static.rust-lang.org/dist/rust-1.96.0-x86_64-unknown-freebsd.tar.xz"
+      sha256: "sha256:abd90900ef4df98c11466cee430d29d2819dbeacea2312fe2c91cc8b7dabbe78"
+      platform: "freebsd-x86_64-unknown"
+    }
+  }
+
+  deps: {
+    build: {}
+    # rustc invokes the system linker driver (`cc`) for every link; toolchain-wrappers is
+    # what actually puts `cc` (delegating to the managed clang) on PATH.
+    runtime: ["toolchain-wrappers"]
+  }
+
+  bins: {
+    default: {
+      rustc: "bin/rustc"
+      cargo: "bin/cargo"
+      rustdoc: "bin/rustdoc"
+    }
+  }
+
+  notes: [
+    "stage0: official rust-lang.org binaries, repackaged. Install `rust` for the"
+    "Grimoire-built toolchain; this package only exists to bootstrap it."
+  ]
+}
+
+export def build [ctx] {
+  let rust_triple = ($RUST_TRIPLES | get ($ctx.target))
+  let dist = (($ctx.sources | get ($ctx.target)).dir | path join $"rust-($VERSION)-($rust_triple)")
+
+  # The combined tarball is a set of component trees (rustc/, cargo/, rust-std-<triple>/),
+  # each holding a bin/lib/share layout plus a manifest.in we do not want. Merge each
+  # component's subtrees into the staging root instead of running its install.sh.
+  for component in ["rustc" "cargo" $"rust-std-($rust_triple)"] {
+    let component_dir = ($dist | path join $component)
+    if not ($component_dir | path exists) {
+      error make { msg: $"dist tarball is missing expected component ($component)" }
+    }
+    for sub in (ls ($component_dir) | get name) {
+      if (($sub | path type) == "dir") {
+        let dest = ($ctx.package_dir | path join ($sub | path basename))
+        mkdir ($dest)
+        ^cp -R $"($sub)/." ($dest)
+      }
+    }
+  }
+
+  # rustup-style shell glue is not wanted in a store package.
+  let env_file = ($ctx.package_dir | path join "etc" "profile.d")
+  if ($env_file | path exists) {
+    rm -rf ($env_file)
+  }
+}
