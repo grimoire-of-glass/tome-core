@@ -46,6 +46,13 @@ export def build [ctx] {
     # absent (ssl, ctypes, sqlite, …) are skipped — this is the minimal build tool, not the
     # full interpreter.
     $env.MODULE_BUILDTYPE = "static"
+
+    # AX_C_FLOAT_WORDS_BIGENDIAN probes endianness by grepping the compiled object for magic byte
+    # patterns — but clang's codegen optimises the marker constants away, so the probe comes back
+    # inconclusive and configure falls back to running a test program, which it refuses to do when it
+    # cannot (a cross/retargeted compile, or a flaky float-runtime link), aborting with "Unknown float
+    # word ordering." Preset the cache var: every Grimoire target (x86_64/aarch64) is little-endian.
+    $env.ax_cv_c_float_words_bigendian = "no"
   }
 
   # --disable-test-modules drops the test-only extensions a build tool never needs.
