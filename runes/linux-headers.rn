@@ -24,20 +24,16 @@ export def build [ctx] {
   let nproc = $ctx.nproc
   let source_dir = ($ctx.sources.main.dir | path join "linux-6.12.93")
   cd $source_dir
-  # `make headers_install` does its final copy with rsync (the kernel's cmd_headers_install),
-  # which the sandboxed build floor doesn't provide — toybox ships no rsync, and pulling it in
-  # would be a heavy dependency at the very bottom of the bootstrap. `make headers` runs the
-  # identical uapi header generation into ./usr/include without that rsync step. Copy the tree
-  # into the prefix ourselves, then drop the kernel's per-header `.cmd` build stamps so the
-  # package ships only headers — exactly what rsync's `--include='*.h' --exclude='*'` installs.
+  # `make headers_install` does its final copy with rsync, which the build floor lacks (toybox
+  # ships none, too heavy to pull in at the bootstrap bottom). `make headers` runs the identical
+  # uapi generation into ./usr/include without rsync; copy the tree ourselves, then drop the
+  # per-header `.cmd` build stamps so the package ships only headers.
   #
-  # kbuild still compiles its host tools (fixdep, unifdef) before generating headers, with
-  # HOSTCC and KBUILD_HOSTLDFLAGS — neither of which the musl floor's CFLAGS/LDFLAGS reaches.
-  # At the managed boundary HOSTCC defaults to the musl-targeted managed clang, whose link then
-  # fails hunting gcc's crtbeginS.o/-lgcc (absent in the musl world). These host tools only run
-  # during this build and are never shipped (linux-headers carries only .h files), so build them
-  # with the host's native glibc compiler. A no-op at the host boundary, where `cc` is already
-  # `/usr/bin/cc`; the fix at the managed boundary, where it sidesteps the managed musl clang.
+  # kbuild compiles host tools (fixdep, unifdef) with HOSTCC, which the musl floor's flags don't
+  # reach. At the managed boundary HOSTCC defaults to the musl clang, whose link then fails hunting
+  # gcc's crtbeginS.o/-lgcc (absent in musl). These tools only run during the build and are never
+  # shipped, so build them with the host's native glibc cc. No-op at the host boundary (cc is
+  # already /usr/bin/cc); the fix at the managed boundary, sidestepping the musl clang.
   make -j ($nproc) HOSTCC="/usr/bin/cc" headers
   let include_dir = ($ctx.package_dir | path join "include")
   mkdir $include_dir

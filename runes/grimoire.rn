@@ -1,13 +1,11 @@
 # Grimoire itself, built from source — `grm upgrade grimoire` is the self-update path
-# (safe: the running binary keeps its inode; the generation flip is atomic).
+# (safe: running binary keeps its inode, generation flip is atomic).
 #
-# Crates are fetched by cargo at build time and verified against the Cargo.lock inside the
-# sha256-pinned source tarball (`--locked`), per the project's vendoring decision — the
-# whole crate set is transitively covered by the store hash through the lock.
+# Crates fetched by cargo at build time, verified against the Cargo.lock in the pinned
+# tarball (`--locked`) — the lock transitively covers the whole crate set via the store hash.
 #
-# Pinning convention (rune-authoring.md "Version policy"): release tags use the tag version;
-# between-tag pins use `0.1.0-dev.YYYYMMDD` (semver prerelease — orders below the release
-# and chronologically among themselves) against a codeload commit tarball.
+# Pinning (rune-authoring.md "Version policy"): release tags use the tag version; between-tag
+# pins use `0.1.0-dev.YYYYMMDD` (semver prerelease) against a codeload commit tarball.
 #
 # To pin a new commit:
 #   COMMIT=<full sha>
@@ -31,8 +29,8 @@ export const package = {
   }
 
   deps: {
-    # rust provides rustc/cargo; cc for the -sys crates' C code (zstd, liblzma static,
-    # ring) comes from toolchain-wrappers via rust's runtime deps.
+    # rust provides rustc/cargo; cc for the -sys crates' C code (zstd, liblzma, ring)
+    # comes from toolchain-wrappers via rust's runtime deps.
     build: { default: ["rust"] }
     runtime: []
   }
@@ -52,15 +50,12 @@ export def build [ctx] {
   let source_dir = ($ctx.sources.main.dir | path join $"grimoire-($COMMIT)")
   cd $source_dir
 
-  # No musl linker wrapper any more: the managed `cc` is self-sufficient (musl triple + --sysroot/-B
-  # baked into toolchain-wrappers, compiler-rt + unwindlib=none clang defaults), and grm links
-  # static-PIE — crt-static is the musl default, so the binary and its host build-script executables
-  # self-relocate with no PT_INTERP (proc-macro .so's carry none either). rustc's default linker
-  # (`cc`) thus does the right thing, and the harness RUSTFLAGS keeps its --remap-path-prefix.
+  # No musl linker wrapper needed: managed `cc` is self-sufficient (musl triple + --sysroot/-B
+  # baked into toolchain-wrappers), and grm links static-PIE (crt-static is the musl default), so
+  # rustc's default linker (`cc`) does the right thing. Harness RUSTFLAGS keep --remap-path-prefix.
 
-  # --locked: the lockfile inside the pinned tarball is the (transitively hashed) truth for every
-  # crate; cargo verifies each download against it. Network use here is the documented vendoring
-  # policy, not an accident.
+  # --locked: the lockfile in the pinned tarball is the hashed truth; cargo verifies each download
+  # against it. Network use here is the documented vendoring policy.
   ^cargo build --release --locked --jobs ($ctx.nproc)
   mkdir ($ctx.package_dir | path join "bin")
   ^cp target/release/grm ($ctx.package_dir | path join "bin" "grm")

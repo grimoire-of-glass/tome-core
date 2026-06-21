@@ -1,15 +1,11 @@
 # The Rust toolchain (rustc + cargo + std), built from source.
 #
-# Stage1 bootstrap: compiled from the official rustc source tarball using `rust-stage0`
-# (repackaged release binaries) as the seed compiler and the tome's `llvm` as the codegen
-# backend (`llvm-config`), so the build never compiles its own LLVM. The source tarball ships
-# vendored cargo dependencies, so nothing is fetched during the build.
+# Stage1 bootstrap: from the official rustc source tarball, seeded by `rust-stage0` (repackaged
+# release binaries), using the tome's `llvm` as the codegen backend so the build never compiles its
+# own LLVM. The tarball ships vendored cargo deps, so nothing is fetched.
 #
-# `x.py install` performs the full self-rebuild (the stage0-built compiler recompiles itself
-# once), which is the upstream dist configuration — expect roughly two compiler builds' worth
-# of wall clock on top of std.
-#
-# Targets mirror rust-stage0: a host can only self-bootstrap where official stage0 binaries exist.
+# `x.py install` does the full self-rebuild (upstream dist config) — ~two compiler builds of wall
+# clock on top of std. Targets mirror rust-stage0 (self-bootstrap only where stage0 binaries exist).
 #
 # To fill in the hash:  curl -sL https://static.rust-lang.org/dist/rustc-<version>-src.tar.xz.sha256
 
@@ -50,18 +46,14 @@ export const package = {
   }
 
   deps: {
-    # rust-stage0 seeds the bootstrap; llvm provides llvm-config; python3 runs x.py; cmake
-    # and make cover the native build scripts of vendored -sys crates. rustc's bootstrap
-    # accepts a bounded LLVM range for an external llvm-config: 1.96 needs >= 21. openssl is
-    # linked statically into cargo (see the build) so cargo carries no host openssl.
-    # libcxx (musl only): the managed llvm is built against libc++, so rustc_llvm makes
-    # librustc_driver.so link -lc++; declaring it gives LIBCXX_PREFIX, which the linker wrapper
-    # points at — the exact installed (PIC) libc++, not whatever an ambiguous store glob would find.
+    # rust-stage0 seeds; llvm provides llvm-config (1.96 needs >= 21); python3 runs x.py; cmake/make
+    # build vendored -sys crates. openssl is linked static into cargo (see build) so cargo carries no
+    # host openssl. libcxx (musl only): the managed llvm is built against libc++, so librustc_driver.so
+    # links -lc++; declaring it gives LIBCXX_PREFIX (the exact installed PIC libc++, not a store glob).
     build: { default: ["rust-stage0" { name: "llvm", version: ">=21" } "python3-minimal" "cmake" "gmake" "openssl" "libcxx[linux-*-musl]"] }
-    # rustc invokes the system linker driver (`cc`) for every link; toolchain-wrappers is
-    # what actually puts `cc` (delegating to the managed clang) on PATH. On musl, the host tools
-    # are dynamically linked and their PT_INTERP points at musl's in-store loader, so musl must
-    # stay installed for rustc to run (`musl[linux-*-musl]`, since macOS links against the SDK).
+    # toolchain-wrappers puts `cc` (the managed clang) on PATH, which rustc invokes for every link.
+    # On musl the host tools are dynamic with PT_INTERP at musl's in-store loader, so musl must stay
+    # installed for rustc to run (macOS links against the SDK).
     runtime: ["toolchain-wrappers" "musl[linux-*-musl]"]
   }
 
@@ -73,8 +65,8 @@ export const package = {
     }
   }
 
-  # rust-stage0 links the same bins (rustc/cargo/rustdoc); linked coexistence is never
-  # wanted. Store-only stage0 — its normal state as this package's build dep — is unaffected.
+  # rust-stage0 links the same bins; linked coexistence is never wanted. Store-only stage0 (its
+  # normal state as a build dep) is unaffected.
   conflicts: ["rust-stage0"]
 }
 
@@ -84,29 +76,26 @@ export def build [ctx] {
   cd $source_dir
 
   let is_musl = ($ctx.target | str ends-with "-musl")
-  # On a glibc host the musl seed can't run, so rust-stage0 gives us the gnu seed and we CROSS-build
-  # the musl toolchain from it: `build` is the gnu (host) triple, `host`/`target` the musl triple we
-  # produce. On a pure-musl host (ctx.host_libc == "musl") the seed is already musl and the build is
-  # native — build == host == target == musl, no cross stanza, no gnu build-host helpers.
+  # On a glibc host the musl seed can't run, so stage0 is gnu and we CROSS-build musl from it: `build`
+  # is the gnu host triple, `host`/`target` the musl triple. On a pure-musl host the seed is musl and
+  # the build is native (build == host == target == musl, no cross stanza).
   let is_cross_musl = ($is_musl and ($ctx.host_libc != "musl"))
   let build_triple = if $is_cross_musl { ($rust_triple | str replace "musl" "gnu") } else { $rust_triple }
 
-  # A linker wrapper for the musl target. The managed `cc` is now self-sufficient for the musl
-  # sysroot/CRT/libc/runtime/unwinder (toolchain-wrappers bakes --sysroot=$MUSL -B$MUSL/lib; clang
-  # defaults to compiler-rt and unwindlib=none), so the wrapper only adds what those defaults cannot:
-  # the libc++ lib dir (librustc_driver.so links -lc++) and the in-store dynamic loader. rustc drives
-  # the linker directly and the host tools are dynamic (crt-static = false) so rustc can dlopen proc-
-  # macros; their PT_INTERP must point at musl's in-store `ld-musl-<arch>.so.1`, never /lib's.
+  # Linker wrapper for the musl target. The managed `cc` is already self-sufficient for the musl
+  # sysroot/CRT/libc/runtime/unwinder, so the wrapper only adds what those defaults cannot: the
+  # libc++ lib dir (librustc_driver.so links -lc++) and the in-store dynamic loader. Host tools are
+  # dynamic (crt-static = false, so rustc can dlopen proc-macros); their PT_INTERP must point at
+  # musl's in-store ld-musl-<arch>.so.1, never /lib's.
   mut linker = "cc"
   if $is_musl {
     let musl = $env.MUSL_PREFIX
-    # Locate the in-store musl loader by glob (the rune command subset has no `split` to pull the
-    # arch out of the target triple); musl ships exactly one `ld-musl-<arch>.so.1` in its lib dir.
+    # Locate the in-store musl loader by glob (the rune subset has no `split` for the arch); musl
+    # ships exactly one ld-musl-<arch>.so.1.
     let loader = (^find ($musl | path join "lib") -name "ld-musl-*.so.1" | lines | first)
-    # librustc_driver.so links the managed LLVM, which is built against libc++, so the link emits
-    # -lc++. Point at the libcxx build dep's lib dir via LIBCXX_PREFIX — the exact installed (PIC)
-    # libc++. (A store glob would be ambiguous: several libcxx hashes coexist and only the newest is
-    # PIC/.so-safe, so picking the wrong one reintroduces the R_AARCH64_TLSLE link failure.)
+    # librustc_driver.so links the libc++-built LLVM, so the link emits -lc++. Point at the libcxx
+    # build dep's lib dir via LIBCXX_PREFIX — the exact installed PIC libc++ (a store glob is
+    # ambiguous: only the newest hash is PIC/.so-safe, the wrong one reintroduces the TLS link failure).
     let libcxx_lib = ($env.LIBCXX_PREFIX | path join "lib")
     let wrap = ($source_dir | path join "grm-musl-linker")
     $"#!/bin/sh\nexec cc \"$@\" -L($libcxx_lib) -Wl,--dynamic-linker=($loader)\n" | save --force $wrap
@@ -115,8 +104,7 @@ export def build [ctx] {
   }
 
   let config_lines = [
-    # Opt out of bootstrap's "review breaking changes since change-id N" prompt; this config
-    # is generated fresh every build, so there is no stale config to migrate.
+    # Opt out of bootstrap's change-id migration prompt; config is generated fresh every build.
     "change-id = \"ignore\""
     ""
     "[build]"
@@ -131,9 +119,8 @@ export def build [ctx] {
     "vendor = true"
     "locked-deps = true"
     ""
-    # The rust install tree is relocatable (rustc finds its sysroot relative to its own
-    # binary), so nothing needs ctx.prefix baked in — install straight into the staging
-    # package dir, llvm.rn-style, instead of routing through DESTDIR.
+    # The rust install tree is relocatable (rustc finds its sysroot relative to its binary), so
+    # install straight into the staging package dir instead of routing through DESTDIR.
     "[install]"
     $"prefix = \"($ctx.package_dir)\""
     "sysconfdir = \"etc\""
@@ -144,10 +131,8 @@ export def build [ctx] {
     ""
     "[llvm]"
     "download-ci-llvm = false"
-    # We link against the tome's prebuilt llvm via the external llvm-config below, so bootstrap
-    # never builds LLVM itself — but its [llvm] config still probes for ninja and aborts when it
-    # is absent from the managed build floor. ninja only matters when bootstrap builds LLVM, so
-    # turn it off to silence the probe (the external llvm-config path ignores it).
+    # We use the external llvm-config below, so bootstrap never builds LLVM — but [llvm] still probes
+    # for ninja and aborts when absent. ninja only matters when bootstrap builds LLVM, so turn it off.
     "ninja = false"
     ""
     $"[target.($rust_triple)]"
@@ -163,55 +148,42 @@ export def build [ctx] {
   for line in $config_lines {
     $config = $config + $line + "\n"
   }
-  # musl-only additions. Kept out of config_lines (which is emitted for every target) so a macOS
-  # build — where MUSL_PREFIX is unset and the darwin target uses the system unwinder — never
-  # references them. The two `[target.<rust_triple>]` keys are appended first and stay inside that
-  # table (a blank line does not close a TOML table); the build (gnu) triple stanza follows.
+  # musl-only additions, kept out of config_lines so a macOS build (MUSL_PREFIX unset, system
+  # unwinder) never references them. Appended first so the two keys stay inside the [target.<musl>]
+  # table (a blank line doesn't close a TOML table); the gnu build-triple stanza follows.
   if $is_musl {
-    # musl-root: bootstrap's sanity check refuses to target musl without the prefix whose lib/ holds
-    # musl's CRT (crt1.o/crti.o/crtn.o/Scrt1.o) and libc.a that std links. llvm-libunwind = in-tree:
-    # rust's unwind crate links GCC's -lgcc_s on musl by default, absent in the managed
-    # compiler-rt/libunwind world; build llvm's libunwind from the vendored source and link it
-    # statically instead (consistent with the wrapper's --unwindlib=none).
+    # musl-root: bootstrap refuses to target musl without the prefix whose lib/ holds musl's CRT and
+    # libc.a that std links. llvm-libunwind = in-tree: rust's unwind crate links GCC's -lgcc_s on
+    # musl by default (absent here), so build llvm's libunwind static instead (matches --unwindlib=none).
     $config = $config + $"musl-root = \"($env.MUSL_PREFIX)\"\nllvm-libunwind = \"in-tree\"\n\n"
     if $is_cross_musl {
-      # Cross from a glibc host: the gnu BUILD triple needs its own stanza — build scripts and
-      # proc-macros (rustc_macros, serde_derive) are compiled for it and run on the build host,
-      # dlopen'd into the *glibc* stage0. They must be glibc artifacts: the managed clang defaults to
-      # musl (a musl .so can't load into a glibc process), so use the host's native glibc /usr/bin/cc.
-      # Ephemeral build-host helpers — every artifact that lands in the store is still produced by the
-      # managed musl clang via the musl stanza above.
+      # Cross from glibc: the gnu BUILD triple needs its own stanza — build scripts and proc-macros
+      # are compiled for it and dlopen'd into the glibc stage0, so must be glibc artifacts. The
+      # managed clang defaults to musl (a musl .so can't load into a glibc process), so use the host's
+      # /usr/bin/cc. Ephemeral build-host helpers only; everything in the store is built by the musl
+      # stanza above.
       $config = $config + $"[target.($build_triple)]\ncc = \"/usr/bin/cc\"\ncxx = \"/usr/bin/c++\"\nlinker = \"/usr/bin/cc\"\n\n"
     }
-    # Native musl host: build == host == target == musl, so the single [target.<musl>] stanza already
-    # covers the build-host helpers — they are musl artifacts built by the managed musl clang.
+    # Native musl host: the single [target.<musl>] stanza already covers the build-host helpers.
   }
   $config | save --force bootstrap.toml
 
-  # cargo's openssl-sys otherwise falls back to a hardcoded Homebrew path on macOS
-  # (/opt/homebrew/opt/openssl@3), baking a host dylib into cargo that breaks the moment
-  # Homebrew's openssl moves. Point it at the managed openssl and link static, so cargo
-  # carries no external openssl. OPENSSL_DIR expects $dir/{include,lib}; OPENSSL_STATIC
-  # forces the .a over the .dylib (the env vars also cover cargo's curl-sys/libgit2-sys).
+  # Without this, cargo's openssl-sys falls back to a hardcoded Homebrew path on macOS, baking a host
+  # dylib into cargo. Point at the managed openssl and link static so cargo carries no external
+  # openssl. OPENSSL_STATIC forces the .a over the .dylib (also covers curl-sys/libgit2-sys).
   $env.OPENSSL_DIR = ($env.OPENSSL_PREFIX)
   $env.OPENSSL_STATIC = "1"
 
   # Re-scope the musl floor's compiler flags from the GENERIC env vars onto the musl TARGET triple.
-  # The floor exports the retarget (--target=<musl> --sysroot=<musl> -isystem …, -static, libc++) on
-  # the unsuffixed CFLAGS/CXXFLAGS/LDFLAGS so autotools/cmake builds inherit it. But rust's bootstrap
-  # reads those generic vars when it builds llvm for the gnu BUILD triple and runs cc-rs for build-
-  # host helpers (the gnu stage1's llvm, build scripts, proc-macros that dlopen into the glibc
-  # stage0). Those must stay glibc; the leaked musl --target/-static/libc++ make them target musl and
-  # break the link (e.g. building the gnu llvm: -static + -shared → R_AARCH64_TLSLE TLS-reloc errors,
-  # libc++ TLS in a shared object). cc-rs and cargo read CFLAGS_<triple> before the generic var, so
-  # move the floor flags onto the musl target triple — where the musl -sys / llvm-wrapper compiles
-  # consume them — and clear the generic vars, leaving the gnu build-host compiles to fall back to
-  # clean host flags (/usr/bin/cc, glibc default sysroot). rustc-driven musl links use the
-  # grm-musl-linker wrapper, not these env vars, so clearing the generic LDFLAGS is safe for the musl
-  # side. The rune subset has no dynamic env keys, so set literal names for both supported musl
-  # targets (only the active triple's vars are read; the other's are inert). On a native musl host
-  # none of this applies — every compile is already musl, so the floor's generic flags are correct —
-  # so the re-scoping (which exists to keep the gnu build-host compiles clean) runs only when cross.
+  # The floor exports the musl retarget (--target/--sysroot/-isystem, -static, libc++) on unsuffixed
+  # CFLAGS/CXXFLAGS/LDFLAGS. But bootstrap reads those generic vars when building the gnu BUILD
+  # triple's llvm and build-host helpers (build scripts, proc-macros that dlopen into the glibc
+  # stage0) — those must stay glibc; the leaked musl flags break their link. cc-rs/cargo read
+  # CFLAGS_<triple> before the generic var, so move the floor flags onto the musl triple and clear
+  # the generic vars, leaving gnu build-host compiles on clean host flags. rustc-driven musl links
+  # use the grm-musl-linker wrapper, not these vars, so clearing generic LDFLAGS is safe. No dynamic
+  # env keys in the rune subset, so set literal names for both musl targets (inactive one is inert).
+  # Cross only — on a native musl host every compile is musl and the generic flags are correct.
   if $is_cross_musl {
     let cf = $env.CFLAGS
     let cxf = $env.CXXFLAGS
@@ -225,12 +197,10 @@ export def build [ctx] {
     $env.CFLAGS = ""
     $env.CXXFLAGS = ""
     $env.LDFLAGS = ""
-    # The floor ALSO injects musl on the generic discovery vars (build_dep_env_vars): CPATH adds
-    # <musl>/include and <linux-headers>/include to EVERY compile, LIBRARY_PATH/CMAKE_LIBRARY_PATH
-    # add <musl>/lib. For the gnu build-host compiles that breaks glibc/libstdc++ — clang-19 pulls
-    # musl's <features.h> via CPATH, so llvm's cmake libstdc++ probe fails ("version must be at least
-    # 7.4"). Clear them; the musl-target compiles get their includes from CFLAGS_<musl-triple> above
-    # and their libs from the grm-musl-linker wrapper, so the musl side does not depend on them.
+    # The floor ALSO injects musl on the generic discovery vars (CPATH, LIBRARY_PATH,
+    # CMAKE_LIBRARY_PATH), which breaks the gnu build-host compiles' glibc/libstdc++ (clang pulls
+    # musl's <features.h> via CPATH). Clear them; the musl-target compiles get includes from
+    # CFLAGS_<musl-triple> above and libs from the grm-musl-linker wrapper.
     $env.CPATH = ""
     $env.C_INCLUDE_PATH = ""
     $env.CPLUS_INCLUDE_PATH = ""
@@ -244,8 +214,7 @@ export def build [ctx] {
 
   ^python3 x.py install --jobs ($ctx.nproc)
 
-  # rust-installer bookkeeping (manifests, uninstall script) has no place in an immutable
-  # store package.
+  # rust-installer bookkeeping (manifests, uninstall script) has no place in an immutable store.
   let rustlib = ($ctx.package_dir | path join "lib" "rustlib")
   if ($rustlib | path exists) {
     for entry in (ls ($rustlib) | get name) {

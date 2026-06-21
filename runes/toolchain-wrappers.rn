@@ -6,11 +6,9 @@ export const package = {
   license: "MIT"
   sources: {}
 
-  # clang and llvm are runtime deps, not just build deps: the wrappers bake absolute store
-  # paths to their binaries, so this package's content (and content address) depends on
-  # theirs — and GC must never reap them while the wrappers are installed. On linux-musl the
-  # compiler-driver wrappers also bake the musl sysroot (see build), so musl joins them: a
-  # runtime dep so GC keeps it, a build dep so MUSL_PREFIX resolves and it is built floor-first.
+  # clang/llvm are runtime deps (not just build): wrappers bake absolute store paths to their bins,
+  # so GC must keep them while wrappers are installed. On linux-musl the driver wrappers also bake
+  # the musl sysroot, so musl joins as both (runtime for GC, build for MUSL_PREFIX + floor order).
   deps: {
     build: { default: ["clang" "llvm" "musl[linux-*-musl]"] }
     runtime: ["clang" "llvm" "musl[linux-*-musl]"]
@@ -28,18 +26,14 @@ export def build [ctx] {
   mkdir ($ctx.package_dir | path join "etc")
 
   let is_macos = ($ctx.target | str starts-with "macos-")
-  # ld64.lld on macOS too: clang already defaults to lld (CLANG_DEFAULT_LINKER), so every
-  # driver-mediated link has used it all along — this alias only covers direct `ld`
-  # invocations, and pointing it at the managed linker removes the last host-linker path
-  # (and the host ld64 banner from build_env_id, so Xcode updates stop re-addressing the
-  # store). ld64.lld speaks the ld64 CLI.
-  # ld.lld / ld64.lld, never plain `lld`: lld dispatches on argv[0], and the bare name is
-  # the "generic driver" that refuses to link without -flavor.
+  # ld64.lld on macOS too: clang already defaults to lld, so this alias only covers direct `ld`
+  # calls, removing the last host-linker path (and the host ld64 banner from build_env_id).
+  # ld.lld / ld64.lld, never plain `lld`: lld dispatches on argv[0]; the bare name is the generic
+  # driver that refuses to link without -flavor.
   let ld_target = if $is_macos { $"($env.LLVM_PREFIX)/bin/ld64.lld" } else { $"($env.LLVM_PREFIX)/bin/ld.lld" }
 
-  # gcc/g++ are aliases for the managed clang: autotools probes the name `gcc` before
-  # `cc`, and without these the *host* gcc wins from the ambient PATH tail — exactly the
-  # unmanaged-compiler leak this package exists to close.
+  # gcc/g++ alias the managed clang: autotools probes `gcc` before `cc`, so without these the host
+  # gcc wins from the PATH tail — the unmanaged-compiler leak this package exists to close.
   let wrappers = {
     cc: $"($env.CLANG_PREFIX)/bin/clang"
     "c++": $"($env.CLANG_PREFIX)/bin/clang++"
@@ -58,8 +52,8 @@ export def build [ctx] {
     strings: $"($env.LLVM_PREFIX)/bin/llvm-strings"
   }
 
-  # No dsymutil wrapper: llvm ships the real `dsymutil` binary itself, and both packages
-  # are linked together (build-env), so an alias here would contest the bin name.
+  # No dsymutil wrapper: llvm ships the real binary and both packages are linked together, so an
+  # alias here would contest the bin name.
   let wrappers = if $is_macos {
     $wrappers | merge {
       lipo: $"($env.LLVM_PREFIX)/bin/llvm-lipo"
@@ -71,14 +65,12 @@ export def build [ctx] {
     $wrappers
   }
 
-  # On linux-musl, bake the musl sysroot into the compiler-driver wrappers (cc/c++/gcc/g++).
-  # clang already defaults to the musl triple, compiler-rt, and unwindlib=none, but carries no
-  # default sysroot — so a bare `cc` (e.g. rustc driving the linker, which bypasses the floor's
-  # CFLAGS/LDFLAGS) resolves headers and CRT/libc from the host's /usr, leaking glibc (a glibc
-  # proc-macro .so then fails to load under the musl rustc: `__register_atfork: symbol not found`).
-  # --sysroot points headers, CRT, and libc at the managed musl; -B finds its crt*.o. Placed before
-  # "$@" so an explicit caller --sysroot still wins. Only the drivers get it: --sysroot/-B are inert
-  # on the llvm-* tool wrappers. Empty on macOS (the SDKROOT floor handles the sysroot there).
+  # On linux-musl, bake the musl sysroot into the driver wrappers (cc/c++/gcc/g++). clang defaults
+  # to the musl triple/compiler-rt/unwindlib=none but has no default sysroot, so a bare `cc` (e.g.
+  # rustc driving the linker, bypassing the floor's flags) resolves headers/CRT/libc from host /usr,
+  # leaking glibc. --sysroot + -B point them at the managed musl. Placed before "$@" so a caller's
+  # explicit --sysroot still wins. Drivers only (inert on llvm-* tools). Empty on macOS (SDKROOT
+  # floor handles it).
   let driver_flags = if $is_macos { "" } else { $" --sysroot=($env.MUSL_PREFIX) -B($env.MUSL_PREFIX)/lib" }
   let drivers = ["cc" "c++" "gcc" "g++"]
 

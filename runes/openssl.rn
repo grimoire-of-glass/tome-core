@@ -12,10 +12,9 @@ export const package = {
     }
   }
 
-  # libssl/libcrypto are linked shared by curl (baked store paths), so openssl is a build
-  # AND runtime dep of its consumers. openssl itself links only libc/pthreads — no managed
-  # library floor beyond that. zlib stays off: openssl's only use for it is the deprecated,
-  # insecure TLS record compression, which we never want.
+  # libssl/libcrypto are linked shared by curl (baked store paths), so openssl is a build AND
+  # runtime dep of consumers. openssl itself links only libc/pthreads. zlib stays off: its only
+  # use here is the deprecated, insecure TLS record compression.
   deps: {
     build: { default: ["gmake"] }
     runtime: []
@@ -29,22 +28,17 @@ export const package = {
 export def build [ctx] {
   let source_dir = ($ctx.sources.main.dir | path join "openssl-3.5.7")
   cd $source_dir
-  # ./config is a thin sh wrapper that execs `perl ./Configure`, which autodetects the
-  # target triple; perl rides in on the ambient host floor, the same documented stage-2 debt
-  # the autotools runes lean on. --libdir=lib pins the layout (openssl picks lib64 on some
-  # 64-bit Linux otherwise); openssldir stays inside the store prefix so the package is
-  # self-contained. no-docs skips the perl POD->man toolchain; no-tests drops the test
-  # programs we never run. Configure selects a release profile (-O3, no -g), so unlike the
-  # autoconf runes there is no build-dir path baked into debug info to strip.
+  # ./config execs `perl ./Configure` (perl rides the ambient host floor, documented stage-2 debt).
+  # --libdir=lib pins the layout (openssl picks lib64 on some 64-bit Linux); openssldir stays in the
+  # store prefix for self-containment. no-docs/no-tests skip the perl man toolchain and test progs.
   #
-  # The darwin target hardcodes `ranlib -c` (Apple's flag to keep common symbols), but the
-  # managed toolchain's ranlib is llvm-ranlib, which rejects -c and fails at install time.
-  # Configure honors a RANLIB env override (RANLIB => env('RANLIB')), so point it at the
-  # plain managed ranlib — llvm-ar already writes an archive index, so dropping -c is safe.
+  # darwin hardcodes `ranlib -c` (Apple's keep-common-symbols flag), which the managed llvm-ranlib
+  # rejects. Configure honors a RANLIB override, so point it at plain ranlib — llvm-ar already writes
+  # an index, so dropping -c is safe.
   $env.RANLIB = "ranlib"
   ./config --prefix=($ctx.prefix) --libdir=lib --openssldir=($ctx.prefix | path join "ssl") no-docs no-tests
   make -j ($ctx.nproc)
-  # install_sw = libraries, headers, and the openssl CLI; install_ssldirs = the openssldir
-  # with a default openssl.cnf. Together they skip install_docs (we built none).
+  # install_sw = libs/headers/CLI; install_ssldirs = openssldir with default openssl.cnf. Together
+  # they skip install_docs (we built none).
   make install_sw install_ssldirs DESTDIR=($ctx.package_dir)
 }

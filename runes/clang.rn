@@ -5,20 +5,18 @@ export const package = {
   homepage: "https://clang.llvm.org/"
   license: "Apache-2.0 WITH LLVM-exception"
 
-  # Split member: built by llvm.rn's monorepo build; these globs claim clang's slice of
-  # that build's output. An individual glob may match nothing (build options vary what
-  # exists) — the build fails only if the member as a whole claims no files.
-  # lib/clang/** is the resource directory, which includes the compiler-rt runtimes the
-  # monorepo build installs there (LLVM_ENABLE_RUNTIMES) — the builtins live inside this
-  # package, where the clang driver looks for them.
+  # Split member: built by llvm.rn's monorepo build; these globs claim clang's slice. An individual
+  # glob may match nothing (build options vary); only an empty member as a whole fails.
+  # lib/clang/** is the resource dir, holding the compiler-rt runtimes the monorepo installs there
+  # (LLVM_ENABLE_RUNTIMES) — the builtins live here, where the clang driver looks for them.
   split_from: "llvm"
 
   # Supersedes the old standalone compiler-rt package: the runtimes now ship in here.
   replaces: ["compiler-rt"]
   files: [
     "bin/clang*"
-    # In LLVM >= 21 bin/clang-offload-packager is a symlink to llvm-offload-binary, and
-    # the partition refuses to separate a symlink from its target — claim both.
+    # LLVM >= 21: clang-offload-packager symlinks llvm-offload-binary; the partition won't separate
+    # a symlink from its target, so claim both.
     "bin/llvm-offload-binary"
     "bin/c-index-test"
     "bin/diagtool"
@@ -38,8 +36,8 @@ export const package = {
     "libexec/**"
   ]
 
-  # clang invokes lld (CLANG_DEFAULT_LINKER) and the llvm bin tools, which live in the
-  # parent package — a genuine runtime dependency, not just a build-time one.
+  # clang invokes lld and the llvm bin tools, which live in the parent package — a genuine runtime
+  # dep, not just build-time.
   deps: {
     runtime: ["llvm"]
   }

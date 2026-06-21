@@ -11,8 +11,8 @@ export const package = {
     }
   }
 
-  # `make` drives both the bootstrap and the main build. Declared (despite being POSIX)
-  # because the self-hosted ambient userland is toybox, which does not ship make.
+  # `make` drives bootstrap and build. Declared despite being POSIX: the self-hosted
+  # userland is toybox, which ships no make.
   deps: {
     build: { default: ["gmake"] }
     runtime: []
@@ -25,15 +25,12 @@ export def build [ctx] {
   cd $source_dir
   # Without --parallel, bootstrap compiles its temporary mini-cmake serially.
   #
-  # -DCMAKE_USE_OPENSSL=OFF: on Linux the bootstrap builds the bundled curl (cmcurl),
-  # whose CMakeLists defaults CMAKE_USE_OPENSSL=ON and hard-fails when it cannot find
-  # OpenSSL on the host — exactly the host auto-detection the sandboxed build env forbids
-  # (AGENTS.md §5.3). cmake needs TLS only for `file(DOWNLOAD https)` / ctest submission,
-  # which the hermetic model never exercises (sources are declared by pinned hash and
-  # fetched by grimoire), so we take §5.3's "explicitly disabled" path rather than pulling
-  # openssl into cmake's runtime closure. macOS is unaffected: its bootstrap defaults to
-  # --system-curl (Secure Transport), so the bundled curl — and this flag — are never
-  # built. Everything after `--` is forwarded verbatim to the configure step.
+  # -DCMAKE_USE_OPENSSL=OFF: on Linux bootstrap builds bundled curl (cmcurl), which defaults
+  # CMAKE_USE_OPENSSL=ON and hard-fails probing the host for OpenSSL — the host auto-detection
+  # the sandbox forbids (AGENTS.md §5.3). cmake needs TLS only for file(DOWNLOAD https)/ctest,
+  # which the hermetic model never exercises, so disable it rather than pull openssl into the
+  # runtime closure. macOS is unaffected: its bootstrap defaults to --system-curl, so bundled
+  # curl and this flag are never built. Everything after `--` is forwarded to configure.
   ./bootstrap --prefix=($ctx.prefix) --parallel=($nproc) -- -DCMAKE_USE_OPENSSL=OFF
   make -j($nproc)
   make install DESTDIR=($ctx.package_dir)

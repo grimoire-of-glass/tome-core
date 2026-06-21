@@ -5,8 +5,7 @@ export const package = {
   homepage: "https://libcxx.llvm.org/"
   license: "Apache-2.0 WITH LLVM-exception"
 
-  # Linux/musl only. macOS gets its C++ standard library from the platform SDK (the floor),
-  # so there is nothing to build there; this rune exists to fill the gap musl leaves.
+  # Linux/musl only: macOS gets its C++ stdlib from the platform SDK; this fills musl's gap.
   targets: ["linux-x86_64-musl" "linux-aarch64-musl"]
 
   sources: {
@@ -17,11 +16,9 @@ export const package = {
   }
 
   deps: {
-    # musl + linux-headers are the floor libcxx cross-compiles against (it IS the musl C++ stdlib —
-    # libc++abi's headers pull musl's <bits/alltypes.h>). They are normally injected as an ambient
-    # env floor, but that only applies once they are *installed*; declaring them here forces them
-    # built before libcxx, so a from-scratch `grm install` orders the floor ahead of its first
-    # consumer instead of relying on incremental build order.
+    # musl + linux-headers are the floor libcxx cross-compiles against (it IS the musl C++ stdlib).
+    # Declared here (not just as ambient floor) to force them built before this first consumer on a
+    # from-scratch install.
     build: { default: ["cmake" "gmake" "musl[linux-*-musl]" "linux-headers[linux]"] }
     runtime: []
   }
@@ -32,30 +29,21 @@ export def build [ctx] {
   let source_dir = ($ctx.sources.main.dir | path join "llvm-project-22.1.7.src")
   cd $source_dir
 
-  # The stage-1 C++ runtime bootstrap. LLVM is C++, so the toolchain can't build against musl
-  # until a musl C++ standard library exists — and the only source of one is libc++, part of
-  # LLVM itself (the classic chicken-and-egg). This builds it with the host clang (the bootstrap
-  # boundary) cross-targeting musl, using the managed musl env (--target/--sysroot/-isystem).
+  # Stage-1 C++ runtime bootstrap: LLVM is C++ but the only musl C++ stdlib is libc++ (part of LLVM
+  # itself), so build it with the host clang cross-targeting musl via the managed musl env.
   #
-  # CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY: CMake's initial compiler probe does a full
-  # link, which needs the very C++ stdlib we are about to build; making the probe compile-only
-  # breaks that cycle. Everything is static (musl ships no shared libc/loader in the store), and
-  # compiler-rt + the LLVM unwinder replace libgcc/libgcc_eh. Tests/benchmarks are off (they pull
-  # in test tooling that probes a host clang install we don't have).
+  # CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY: makes CMake's compiler probe compile-only, else it
+  # full-links against the very stdlib we're building. All static (musl ships no shared libc/loader);
+  # compiler-rt + LLVM unwinder replace libgcc. Tests/benchmarks off (they probe a host clang).
   #
-  # LIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY folds libc++abi into libc++.a, so a consumer's
-  # plain `-stdlib=libc++` resolves the `__cxa_*`/typeinfo symbols without a separate `-lc++abi`
-  # (whose link order CMake would otherwise get wrong); the unwinder still comes via
-  # `--unwindlib=libunwind`.
+  # LIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY folds libc++abi into libc++.a so `-stdlib=libc++`
+  # resolves __cxa_*/typeinfo without a separate -lc++abi; unwinder still via --unwindlib=libunwind.
   #
-  # LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF: musl has no `__cxa_thread_atexit_impl`, but the
-  # `check_library_exists` probe false-positives against the host glibc that leaks into configure
-  # checks, which leaves consumers with an undefined reference. Forcing it off makes libc++abi use
-  # its own thread-local-destructor registry.
-  # CMAKE_POSITION_INDEPENDENT_CODE: rust's dynamic rustc links libc++ into librustc_driver.so, so
-  # these static archives must be -fPIC. Without it clang emits local-exec TLS for libc++abi's
-  # eh_globals (R_AARCH64_TLSLE), which ld rejects in a .so; -fPIC lowers it to .so-safe TLSDESC.
-  # Harmless for the static-executable consumers (a slightly less optimal TLS/data access).
+  # LIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF: musl lacks it, but the probe false-positives against
+  # leaked host glibc; forcing off uses libc++abi's own TLS-destructor registry.
+  # CMAKE_POSITION_INDEPENDENT_CODE: rustc links libc++ into librustc_driver.so, so these static
+  # archives must be -fPIC — else clang emits local-exec TLS that ld rejects in a .so. Harmless for
+  # static-executable consumers.
   cmake -S runtimes -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" -DLIBCXX_HAS_MUSL_LIBC=ON -DLIBCXXABI_HAS_CXA_THREAD_ATEXIT_IMPL=OFF -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_STATIC=ON -DLIBUNWIND_ENABLE_SHARED=OFF -DLIBUNWIND_ENABLE_STATIC=ON -DLIBCXXABI_USE_LLVM_UNWINDER=ON -DLIBCXX_USE_COMPILER_RT=ON -DLIBCXXABI_USE_COMPILER_RT=ON -DLIBUNWIND_USE_COMPILER_RT=ON -DLIBCXX_CXX_ABI=libcxxabi -DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF -DLIBUNWIND_INCLUDE_TESTS=OFF -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DCMAKE_INSTALL_PREFIX=($ctx.prefix)
   cmake --build build --parallel ($nproc)
   cmake --install build --prefix ($ctx.package_dir)

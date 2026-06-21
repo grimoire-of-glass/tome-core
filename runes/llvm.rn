@@ -11,8 +11,7 @@ export const package = {
     }
   }
 
-  # cmake's default generator emits Makefiles (hence make), and LLVM's build requires a
-  # Python interpreter. Both declared so a pure-managed (toybox-ambient) build works.
+  # cmake (Makefile generator → gmake) and python3 are needed for a pure-managed build.
   deps: {
     build: { default: ["cmake" "gmake" "python3-minimal" "libcxx[linux-*-musl]"] }
     runtime: []
@@ -20,50 +19,31 @@ export const package = {
 
 }
 
-# One monorepo build produces this package and its split members (clang.rn): upstream's
-# supported configuration is LLVM_ENABLE_PROJECTS, not standalone sub-project builds, and
-# it compiles the shared LLVM libraries once instead of per project. clang's files are
-# carved out post-build by clang.rn's `files` globs; lld stays in this package.
-#
-# compiler-rt builds via LLVM_ENABLE_RUNTIMES: the runtimes sub-build configures with the
-# just-built clang and installs into clang's resource directory (lib/clang/<major>/), so
-# the builtins ship inside the clang split member — exactly where the clang driver looks
-# for them, with no separate package or discovery wiring. COMPILER_RT_-prefixed flags pass
-# through to the runtimes sub-build; the Apple OS variants are disabled as the old
-# standalone compiler-rt build did.
+# One monorepo build (LLVM_ENABLE_PROJECTS — upstream's supported config) produces llvm + lld
+# here; clang.rn carves clang's files out post-build. compiler-rt builds via
+# LLVM_ENABLE_RUNTIMES into clang's resource dir (lib/clang/<major>/), where the driver looks
+# for it — no separate package. COMPILER_RT_* flags pass through to that sub-build.
 export def build [ctx] {
   let nproc = $ctx.nproc
   let source_dir = ($ctx.sources.main.dir | path join "llvm-project-22.1.7.src")
   cd $source_dir
 
-  # On musl, the C++ build needs the managed libc++ (the host has no musl C++ stdlib). The build
-  # env injects it automatically once `libcxx` is installed — which the `libcxx[linux-*-musl]`
-  # build dep guarantees is the case before this builds — so no per-rune flag wiring is needed.
+  # On musl the C++ build needs managed libc++; the libcxx build dep + auto-injected env cover it.
 
-  # LLVM_INSTALL_UTILS ships FileCheck/not/count with the install — rust's bootstrap
-  # sanity-checks for FileCheck beside any external llvm-config it is pointed at.
-  # ZSTD is disabled like zlib/libxml2: LLVM >= 22 finds a host zstd at configure time,
-  # and consumers that link LLVM statically (rustc via llvm-config) then fail with
-  # undefined ZSTD_* symbols because the host lib is not on their link path.
-  #
-  # Darwin: pin compiler-rt to the single host arch and skip the cc_kext flavors. With
-  # several builtins targets, the Makefiles generator emits the shared outline-atomics
-  # helper generation rule into every consuming target and they race under `make -j`
-  # ("failed to create symbolic link ... File exists"); one arch with kext off leaves one
-  # consumer. Kernel-extension builtins have no place in this toolchain anyway, and the
-  # i386/x86_64h slices are dead weight. DARWIN_*-prefixed flags forward to the
-  # runtimes/builtins sub-builds (llvm/runtimes PASSTHROUGH_PREFIXES).
+  # LLVM_INSTALL_UTILS ships FileCheck (rust's bootstrap checks for it).
+  # ZSTD/zlib/libxml2 off: LLVM >= 22 links a host zstd that static consumers (rustc via
+  # llvm-config) then can't resolve (undefined ZSTD_*).
+  # Darwin: pin compiler-rt to one arch + SKIP_CC_KEXT — multiple builtins arches race on the
+  # shared outline-atomics rule under `make -j`; kext/i386 slices are dead weight. DARWIN_*
+  # flags forward to the builtins sub-build.
   let darwin_arch = match $ctx.target {
     "macos-aarch64-darwin" => "arm64"
     "macos-x86_64-darwin" => "x86_64"
     _ => ""
   }
-  # The host triple is declared, never guessed: LLVM's bundled config.guess is a 2011
-  # fossil whose Darwin branch asks `uname -p` and assumes *powerpc* when the answer is
-  # "unknown" — which is exactly what toybox's uname prints once the managed userland is
-  # on the build PATH. The symptom is a clang whose default target is the literal string
-  # "unknown" and a compiler-rt configure where every try-compile fails. (Bootstrap never
-  # hit it: llvm builds before toybox exists.) DEFAULT_TARGET_TRIPLE follows HOST_TRIPLE.
+  # Declare the host triple, never guess: LLVM's config.guess is a 2011 fossil that assumes
+  # powerpc when toybox's `uname -p` says "unknown", yielding a clang whose default target is
+  # literally "unknown". DEFAULT_TARGET_TRIPLE follows HOST_TRIPLE.
   let host_triple = match $ctx.target {
     "macos-aarch64-darwin" => "arm64-apple-darwin"
     "macos-x86_64-darwin" => "x86_64-apple-darwin"
@@ -73,40 +53,19 @@ export def build [ctx] {
     "linux-x86_64-gnu" => "x86_64-unknown-linux-gnu"
     _ => (error make { msg: $"no LLVM host triple mapping for target ($ctx.target)" })
   }
-  # Both clang's top-level configure and the compiler-rt sub-configures parse `ld -v`
-  # for a Darwin linker version unless CMAKE_LINKER matches .*lld.* (upstream's own lld
-  # escape hatch). Our wrapper is named plain `ld`, and ld64.lld's "must specify -arch"
-  # banner regex-matches to the nonsense version "64." (the digits in "ld64.lld"). The
-  # top-level detection is the dangerous one: it BAKES that string into the clang driver
-  # as HOST_LINK_VERSION, so every link the new clang ever drives passes
-  # -mlinker-version=64. and fails. The bare lld-bearing name short-circuits all three
-  # detections; nothing ever executes the value, and a clang without HOST_LINK_VERSION
-  # simply omits the flag (the normal state on every non-Apple build).
-  # PIC on Linux: rust's dynamic rustc links these static LLVM libs into librustc_driver.so, and
-  # non-PIC objects can't go in a shared object — both the absolute relocations (R_AARCH64_ABS64) and
-  # the local-exec TLS that clang emits for module-local thread_locals (LLVM's PrettyStackTrace/
-  # TimeTraceProfiler) when NOT -fPIC, whose R_AARCH64_TLSLE ld rejects in a .so. LLVM_ENABLE_PIC=ON
-  # only enables PIC *capability* (allowing shared libs); it does NOT add -fPIC to static-library
-  # objects. CMAKE_POSITION_INDEPENDENT_CODE=ON does, which makes the TLS lower to .so-safe TLSDESC
-  # and the data to GOT-relative. That capability also lets cmake build the shared libLLVM/
-  # libclang-cpp dylibs, the libLTO/libRemarks C-API .so's, and the clang analyzer plugin .so's —
-  # which we neither need nor want here — so every dylib target and plugin support is disabled,
-  # leaving PIC *static* archives only. A static clang links PIC archives fine; the toolchain is
-  # unaffected. Linux only — macOS is Mach-O (PIC by default, no ELF relocation/TLS-model issue).
+  # Darwin: clang/compiler-rt configure parse `ld -v` for a linker version unless CMAKE_LINKER
+  # matches .*lld.*. A plain `ld` lets ld64.lld's banner regex-match "64.", which bakes into the
+  # driver as HOST_LINK_VERSION and breaks every later link; the lld-bearing name short-circuits it.
   #
-  # CLANG_DEFAULT_RTLIB=compiler-rt makes the resulting clang self-sufficient in the musl world. A
-  # musl-host clang otherwise still DEFAULTS to gcc's runtime (libgcc / crtbeginS.o / libgcc_s),
-  # which does not exist here — so a plain `cc` link fails, and every build only works because the
-  # floor spoon-feeds `--rtlib=compiler-rt`. compiler-rt (builtins + clang_rt.crtbegin.o) ships in
-  # clang's own resource dir, so defaulting to it lets a bare `cc` link with no floor flags
-  # (verified: `cc --rtlib=compiler-rt` links a musl exe clean, pulling no -lgcc/-lgcc_s).
+  # Linux PIC: rustc links these static LLVM libs into librustc_driver.so, so objects must be PIC.
+  # LLVM_ENABLE_PIC only permits shared libs; CMAKE_POSITION_INDEPENDENT_CODE=ON is what adds -fPIC
+  # to static objects. All dylib/plugin targets disabled — PIC static archives only. (macOS Mach-O
+  # is PIC by default.)
   #
-  # CLANG_DEFAULT_UNWINDLIB=none completes that self-sufficiency at the link. clang's default
-  # unwindlib is "platform" — libgcc/libgcc_s on Linux — which a bare `cc` link pulls in but the musl
-  # world does not have. rustc drives the linker directly (bypassing the floor's LDFLAGS), so every
-  # rustc-driven musl link failed hunting -lgcc_s unless a per-rune wrapper spoon-fed --unwindlib=none.
-  # Defaulting to none lets a bare `cc` link clean: rust ships its own in-tree libunwind, and C++
-  # builds re-add --unwindlib=libunwind explicitly (the libcxx floor), so nothing else regresses.
+  # CLANG_DEFAULT_RTLIB=compiler-rt + CLANG_DEFAULT_UNWINDLIB=none make a musl-host clang
+  # self-sufficient: its defaults (gcc's libgcc / libgcc_s) don't exist here, and rustc drives the
+  # linker directly so floor flags don't reach it. compiler-rt ships in clang's resource dir; rust
+  # brings its own libunwind and C++ re-adds --unwindlib=libunwind, so a bare `cc` links clean.
   if ($darwin_arch | is-empty) {
     cmake -S llvm -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=($ctx.prefix) -DLLVM_HOST_TRIPLE=($host_triple) -DLLVM_ENABLE_PROJECTS="clang;lld" -DLLVM_ENABLE_RUNTIMES=compiler-rt -DCOMPILER_RT_ENABLE_IOS=OFF -DCOMPILER_RT_ENABLE_WATCHOS=OFF -DCOMPILER_RT_ENABLE_TVOS=OFF -DCOMPILER_RT_ENABLE_XROS=OFF -DCOMPILER_RT_ENABLE_MACCATALYST=OFF -DCOMPILER_RT_BUILD_SANITIZERS=OFF -DCOMPILER_RT_BUILD_XRAY=OFF -DCOMPILER_RT_BUILD_LIBFUZZER=OFF -DCOMPILER_RT_BUILD_PROFILE=OFF -DCOMPILER_RT_BUILD_MEMPROF=OFF -DCOMPILER_RT_BUILD_ORC=OFF -DCOMPILER_RT_BUILD_GWP_ASAN=OFF -DLLVM_TARGETS_TO_BUILD="X86;AArch64" -DCLANG_DEFAULT_LINKER=lld -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DCLANG_DEFAULT_RTLIB=compiler-rt -DCLANG_DEFAULT_UNWINDLIB=none -DLLVM_ENABLE_PIC=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_BUILD_LLVM_C_DYLIB=OFF -DCLANG_LINK_CLANG_DYLIB=OFF -DLLVM_ENABLE_PLUGINS=OFF -DLLVM_INSTALL_UTILS=ON
   } else {
