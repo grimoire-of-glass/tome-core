@@ -42,6 +42,14 @@ export def build [ctx] {
     $env.HOSTCC = $"cc --sysroot=($env.MUSL_PREFIX) -B($env.MUSL_PREFIX)/lib -static"
   }
   make $config
+  # CONFIG_TOYBOX_ZHELP gzips the help text and embeds it as a C array via
+  # `instlist --help | gzip -9 | od -Anone -vtx1 | sed 's/ /,0x/g'` (scripts/make.sh). That sed
+  # assumes GNU od's single-space columns; BSD od (chimerautils on Chimera, also macOS/FreeBSD)
+  # pads with irregular leading/trailing/multiple spaces, so each extra space becomes an empty
+  # `0x,` -> "invalid suffix 'x' on integer constant". It's toybox's only `od` use. Disable ZHELP:
+  # help still works, just stored uncompressed (a non-issue for a bootstrap userland). gsed (a
+  # declared build dep) is the GNU sed already on PATH.
+  ^gsed -i 's/^CONFIG_TOYBOX_ZHELP=y/# CONFIG_TOYBOX_ZHELP is not set/' .config
   $env.PREFIX = ($ctx.package_dir)
   make -j ($nproc) install
 }
