@@ -12,19 +12,19 @@
 #   curl -sL https://codeload.github.com/hermetomancy/grimoire/tar.gz/$COMMIT | shasum -a 256
 # then update COMMIT, the version date, and the sha256 below.
 
-const COMMIT = "cdcaf44d0d015092636dae4b0a1fe1174291ec17"
+const COMMIT = "28093b7f0d284bf9ab5454dd131ea9f8ea22450d"
 
 export const package = {
   name: "grimoire"
-  version: "0.1.0-dev.20260616.3"
+  version: "0.1.0-dev.20260622.1"
   summary: "Grimoire itself: the grm package manager, built from source"
   homepage: "https://github.com/hermetomancy/grimoire"
   license: "MIT"
 
   sources: {
     main: {
-      url: "https://codeload.github.com/hermetomancy/grimoire/tar.gz/cdcaf44d0d015092636dae4b0a1fe1174291ec17"
-      sha256: "sha256:c23fbad528b2ae455733a454a540873161a99011cdfe6d140ccd59d727bb4bea"
+      url: "https://codeload.github.com/hermetomancy/grimoire/tar.gz/28093b7f0d284bf9ab5454dd131ea9f8ea22450d"
+      sha256: "sha256:de3c99b8172ae7d9d1ae3458d47975ca48550df1258daeed527d75f1cce2cd6b"
     }
   }
 
