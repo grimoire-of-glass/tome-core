@@ -69,16 +69,27 @@ export def build [ctx] {
   # to the musl triple/compiler-rt/unwindlib=none but has no default sysroot, so a bare `cc` (e.g.
   # rustc driving the linker, bypassing the floor's flags) resolves headers/CRT/libc from host /usr,
   # leaking glibc. --sysroot + -B point them at the managed musl. Placed before "$@" so a caller's
-  # explicit --sysroot still wins. Drivers only (inert on llvm-* tools). Empty on macOS (SDKROOT
-  # floor handles it).
+  # explicit --sysroot still wins. Drivers only (inert on llvm-* tools). Empty on macOS, where the
+  # sysroot is the system SDK located at runtime (see sdk_preamble) rather than a baked path.
   let driver_flags = if $is_macos { "" } else { $" --sysroot=($env.MUSL_PREFIX) -B($env.MUSL_PREFIX)/lib" }
   let drivers = ["cc" "c++" "gcc" "g++"]
 
+  # macOS clang has no default sysroot; it relies on SDKROOT to find the system SDK (headers, libs).
+  # grm sets SDKROOT for the builds it drives, but a bare driver call (cargo/make/an IDE invoking
+  # `cc` directly) has none, so C compiles fail to find <string.h>. Fall back to the active SDK via
+  # `xcrun` when SDKROOT is unset, making the managed `cc` self-sufficient like Apple's — without
+  # baking a host SDK path (which would go stale and trip the purity lint). A caller's own SDKROOT
+  # still wins, and grm-driven builds skip the xcrun (SDKROOT already set). Drivers only; the version
+  # banner is unchanged, so this does not move build_env_id.
+  let sdk_preamble = if $is_macos { "if [ -z \"$SDKROOT\" ]; then SDKROOT=$(xcrun --show-sdk-path 2>/dev/null); export SDKROOT; fi\n" } else { "" }
+
   for key in ($wrappers | columns) {
     let wrapper_target = ($wrappers | get $key)
-    let flags = (if ($key in $drivers) { $driver_flags } else { "" })
+    let is_driver = ($key in $drivers)
+    let flags = (if $is_driver { $driver_flags } else { "" })
+    let preamble = (if $is_driver { $sdk_preamble } else { "" })
     let wrapper_path = ($ctx.package_dir | path join "bin" $key)
-    $"#!/usr/bin/env sh\nexec '($wrapper_target)'($flags) \"$@\"\n" | save $wrapper_path
+    $"#!/usr/bin/env sh\n($preamble)exec '($wrapper_target)'($flags) \"$@\"\n" | save $wrapper_path
     ^chmod +x $wrapper_path
   }
 }
