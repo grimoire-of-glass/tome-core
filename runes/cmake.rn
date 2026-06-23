@@ -12,7 +12,7 @@ export const package = {
   }
 
   # `make` drives bootstrap and build. Declared despite being POSIX: the self-hosted
-  # userland is toybox, which ships no make.
+  # userland floor (uutils/dash/mawk/gsed/ggrep) ships no make.
   deps: {
     build: { default: ["gmake"] }
     runtime: []

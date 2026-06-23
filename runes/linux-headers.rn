@@ -24,7 +24,7 @@ export def build [ctx] {
   let nproc = $ctx.nproc
   let source_dir = ($ctx.sources.main.dir | path join "linux-6.12.93")
   cd $source_dir
-  # `make headers_install` does its final copy with rsync, which the build floor lacks (toybox
+  # `make headers_install` does its final copy with rsync, which the managed floor lacks (it
   # ships none, too heavy to pull in at the bootstrap bottom). `make headers` runs the identical
   # uapi generation into ./usr/include without rsync; copy the tree ourselves, then drop the
   # per-header `.cmd` build stamps so the package ships only headers.

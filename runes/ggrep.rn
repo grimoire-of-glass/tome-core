@@ -1,0 +1,39 @@
+export const package = {
+  name: "ggrep"
+  version: "3.12"
+  summary: "GNU grep — the build floor's grep (the GNU text-processing pair with gsed)"
+  homepage: "https://www.gnu.org/software/grep/"
+  license: "GPL-3.0-or-later"
+
+  # GNU grep under its implementation name, shipping both command names (the gsed pattern,
+  # rune-authoring.md "Naming rule"): `grep` is the generic capability, `ggrep` states GNU
+  # explicitly. configure leans on grep as hard as sed, and GNU-isms (`-E`/`-o`/`-P`, `\|`, …) show
+  # up in build scripts, so grep is the second GNU text-processing exception alongside gsed; the rest
+  # of the floor stays non-GNU (dash/mawk/uutils). uutils has no grep (grep was never a coreutil),
+  # so this is what lets toybox be removed.
+  sources: {
+    main: {
+      url: "https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz"
+      sha256: "sha256:2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9"
+    }
+  }
+
+  deps: {
+    build: { default: ["gmake"] }
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "grep-3.12")
+  cd $source_dir
+  # --disable-nls keeps it off gettext; dependency tracking is one-shot waste.
+  # drop autoconf's default -g so the temp build dir isn't baked into the binary (purity lint)
+  $env.CFLAGS = "-O2"
+  ./configure --prefix=($ctx.prefix) --disable-nls --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+  # Both names: `grep` (plus `egrep`/`fgrep`) from the install, `ggrep` as the implementation alias.
+  let bin = ($ctx.package_dir | path join ($ctx.prefix | str replace -r '^/' '') 'bin')
+  ^ln -s grep ($bin | path join 'ggrep')
+}

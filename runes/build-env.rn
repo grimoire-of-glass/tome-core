@@ -7,7 +7,7 @@ export const package = {
   sources: {}
 
   # build_only: the toolchain is pinned in the store (kept across `grm clean`, available to source
-  # builds) but never linked into the active profile — its bins (toybox's coreutils, clang, cmake,
+  # builds) but never linked into the active profile — its bins (uutils/dash/mawk/gsed/ggrep, clang, cmake,
   # python3, rustc, …) are build machinery, not user commands, so installing build-env does not flood
   # `profiles/current/bin`. Builds still find the toolchain via the build-dep PATH; this only keeps
   # it off the *user* PATH.
@@ -40,7 +40,13 @@ export const package = {
       "cmake"
       "gmake"
       "python3-minimal"
-      "toybox"
+      # Userland floor (replaced toybox): a POSIX shell, awk, coreutils, sed, grep — enough for
+      # autotools configure without leaning on the host /usr/bin tail.
+      "dash"
+      "mawk"
+      "uutils"
+      "gsed"
+      "ggrep"
       "linux-headers[linux]"
       "musl[linux]"
     ]

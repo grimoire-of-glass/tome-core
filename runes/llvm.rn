@@ -48,7 +48,7 @@ export def build [ctx] {
     _ => ""
   }
   # Declare the host triple, never guess: LLVM's config.guess is a 2011 fossil that assumes
-  # powerpc when toybox's `uname -p` says "unknown", yielding a clang whose default target is
+  # powerpc when the floor's `uname -p` says "unknown", yielding a clang whose default target is
   # literally "unknown". DEFAULT_TARGET_TRIPLE follows HOST_TRIPLE.
   let host_triple = match $ctx.target {
     "macos-aarch64-darwin" => "arm64-apple-darwin"

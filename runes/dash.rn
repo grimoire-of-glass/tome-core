@@ -1,0 +1,45 @@
+export const package = {
+  name: "dash"
+  version: "0.5.12"
+  summary: "DASH: a small, strictly-POSIX shell — the managed build floor's /bin/sh"
+  homepage: "http://gondor.apana.org.au/~herbert/dash/"
+  license: "BSD-3-Clause"
+
+  # The configure-grade POSIX shell for the managed build floor. autoconf re-execs itself under a
+  # POSIX `sh` found on PATH; the host `/usr/bin` tail used to supply it, so dropping that tail
+  # (`--hermetic`) leaves every autotools rune with no shell — the gmake `configure` runaway. dash
+  # is the shell autoconf is de facto tested against (Debian's `/bin/sh`), so it is the floor `sh`.
+  #
+  # Non-GNU: the binary is pure BSD ash (UC Berkeley Regents + Kenneth Almquist). Only autotools'
+  # own build-aux files (`config.guess`/`config.sub` — GPL with the autoconf exception;
+  # `missing`/`depcomp` — GPL) are non-BSD, and those are build-time scaffolding that runs during
+  # `configure` but is never linked into or shipped with the binary. The packaged artifact is BSD.
+  #
+  # Source: the Debian `orig` tarball over HTTPS — verified byte-identical (sha256) to the canonical
+  # upstream at gondor.apana.org.au, which is HTTP-only.
+  sources: {
+    main: {
+      url: "https://deb.debian.org/debian/pool/main/d/dash/dash_0.5.12.orig.tar.gz"
+      sha256: "sha256:6a474ac46e8b0b32916c4c60df694c82058d3297d8b385b74508030ca4a8f28a"
+    }
+  }
+
+  deps: {
+    build: { default: ["gmake"] }
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "dash-0.5.12")
+  cd $source_dir
+  # drop autoconf's default -g so the temp build dir isn't baked into the binary (purity lint)
+  $env.CFLAGS = "-O2"
+  ./configure --prefix=($ctx.prefix) --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+  # Provide the `sh` capability: dash IS the managed /bin/sh. Ship the impl name from the install
+  # plus `sh` as the generic alias (the gsed/gmake pattern: implementation name + capability name).
+  let bin = ($ctx.package_dir | path join ($ctx.prefix | str replace -r '^/' '') 'bin')
+  ^ln -s dash ($bin | path join 'sh')
+}
