@@ -8,10 +8,11 @@ export const package = {
 
   # clang/llvm are runtime deps (not just build): wrappers bake absolute store paths to their bins,
   # so GC must keep them while wrappers are installed. On linux-musl the driver wrappers also bake
-  # the musl sysroot, so musl joins as both (runtime for GC, build for MUSL_PREFIX + floor order).
+  # the musl sysroot and the libcxx C++ stdlib paths, so both join as runtime (GC) and build
+  # (MUSL_PREFIX/LIBCXX_PREFIX + floor order). libcxx is musl-only (macOS gets libc++ from the SDK).
   deps: {
-    build: { default: ["clang" "llvm" "musl[linux-*-musl]"] }
-    runtime: ["clang" "llvm" "musl[linux-*-musl]"]
+    build: { default: ["clang" "llvm" "musl[linux-*-musl]" "libcxx[linux-*-musl]"] }
+    runtime: ["clang" "llvm" "musl[linux-*-musl]" "libcxx[linux-*-musl]"]
   }
 
 }
@@ -72,7 +73,15 @@ export def build [ctx] {
   # explicit --sysroot still wins. Drivers only (inert on llvm-* tools). Empty on macOS, where the
   # sysroot is the system SDK located at runtime (see sdk_preamble) rather than a baked path.
   let driver_flags = if $is_macos { "" } else { $" --sysroot=($env.MUSL_PREFIX) -B($env.MUSL_PREFIX)/lib" }
+  # The C++ drivers also need the managed libc++ — musl ships no C++ stdlib, so point clang at the
+  # libcxx package's headers/libs (clang already defaults to -stdlib=libc++ via llvm.rn). -nostdinc++
+  # drops clang's empty default C++ include dir; --unwindlib=libunwind matches the compiler-rt build
+  # (llvm defaults UNWINDLIB=none for C). libc++abi is folded into libc++.a, so no separate -lc++abi.
+  # libcxx is musl-only; macOS C++ resolves through the SDK, so these stay empty there.
+  let is_musl = ($ctx.target | str ends-with "-musl")
+  let cxx_flags = if $is_musl { $" -nostdinc++ -isystem ($env.LIBCXX_PREFIX)/include/c++/v1 -L($env.LIBCXX_PREFIX)/lib --unwindlib=libunwind" } else { "" }
   let drivers = ["cc" "c++" "gcc" "g++"]
+  let cxx_drivers = ["c++" "g++"]
 
   # macOS clang has no default sysroot; it relies on SDKROOT to find the system SDK (headers, libs).
   # grm sets SDKROOT for the builds it drives, but a bare driver call (cargo/make/an IDE invoking
@@ -86,7 +95,8 @@ export def build [ctx] {
   for key in ($wrappers | columns) {
     let wrapper_target = ($wrappers | get $key)
     let is_driver = ($key in $drivers)
-    let flags = (if $is_driver { $driver_flags } else { "" })
+    let is_cxx = ($key in $cxx_drivers)
+    let flags = (if $is_cxx { $"($driver_flags)($cxx_flags)" } else if $is_driver { $driver_flags } else { "" })
     let preamble = (if $is_driver { $sdk_preamble } else { "" })
     let wrapper_path = ($ctx.package_dir | path join "bin" $key)
     $"#!/usr/bin/env sh\n($preamble)exec '($wrapper_target)'($flags) \"$@\"\n" | save $wrapper_path
