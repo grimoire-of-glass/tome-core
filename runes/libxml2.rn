@@ -1,0 +1,34 @@
+export const package = {
+  name: "libxml2"
+  version: "2.13.5"
+  summary: "GNOME XML parsing and toolkit library (libxml2)"
+  homepage: "https://gitlab.gnome.org/GNOME/libxml2"
+  license: "MIT"
+
+  # Lives in tome-core: the managed llvm links libxml2 (LLVM_ENABLE_LIBXML2 — XML manifest/remark
+  # handling), and a core rune cannot depend on a world package. zlib (core) backs libxml2's
+  # compression support; consumers link the shared libxml2 by store path (the openssl pattern).
+  sources: {
+    main: {
+      url: "https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.5.tar.xz"
+      sha256: "sha256:74fc163217a3964257d3be39af943e08861263c4231f9ef5b496b6f6d4c7b2b6"
+    }
+  }
+
+  deps: {
+    build: { default: ["gmake" "zlib"] }
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "libxml2-2.13.5")
+  cd $source_dir
+  # Upstream-default feature set: zlib (managed) for compression, lzma auto-detected. --without-python
+  # only skips the language binding (a separate artifact), not a library feature. -O2 drops -g for
+  # purity.
+  $env.CFLAGS = "-O2"
+  ./configure --prefix=($ctx.prefix) --without-python --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+}

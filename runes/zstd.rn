@@ -1,0 +1,42 @@
+export const package = {
+  name: "zstd"
+  version: "1.5.7"
+  summary: "Zstandard — fast real-time compression algorithm and CLI"
+  homepage: "https://facebook.github.io/zstd/"
+  license: "BSD-3-Clause"
+
+  sources: {
+    main: {
+      url: "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+      sha256: "sha256:eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+    }
+  }
+
+  # No external compression backend (see build), so nothing from the store survives: zstd is
+  # a build dep for later libzstd links and has no runtime deps. Built via CMake, not the raw Makefile.
+  deps: {
+    build: { default: ["cmake" "gmake"] }
+    runtime: []
+  }
+
+  bins: {
+    default: { zstd: "bin/zstd" }
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "zstd-1.5.7")
+  cd $source_dir
+  # CMake over the raw Makefile: the Makefile needs `md5sum` (absent from sandbox PATH) and
+  # auto-probes host zlib/lzma/lz4. CMake's backend options all default OFF (no host lib
+  # linked), Release gives -O3 -DNDEBUG, and programs link the static libzstd by default.
+  #
+  # CMake compiles with ABSOLUTE source paths, so __FILE__ bakes the temp build dir into the
+  # binary (purity lint catches it even without -g). -ffile-prefix-map rewrites them to a
+  # stable prefix (C analog of --remap-path-prefix); map both the source tree and work dir.
+  let build_dir = ($ctx.work_dir | path join "zstd-build")
+  let remap = $"-ffile-prefix-map=($source_dir)=zstd -ffile-prefix-map=($ctx.work_dir)=build"
+  cmake -S build/cmake -B ($build_dir) -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=($ctx.prefix) -DZSTD_BUILD_TESTS=OFF $"-DCMAKE_C_FLAGS=($remap)"
+  cmake --build ($build_dir) --parallel ($ctx.nproc)
+  cmake --install ($build_dir) --prefix ($ctx.package_dir)
+}
