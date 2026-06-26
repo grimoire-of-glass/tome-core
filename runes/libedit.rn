@@ -1,0 +1,41 @@
+export const package = {
+  name: "libedit"
+  # Upstream versions as `<date>-3.1`; semver needs MAJOR.MINOR.PATCH, so encode as editline
+  # version 3.1 with the snapshot date as the patch. The tarball/source dir keep the upstream name.
+  version: "3.1.20240808"
+  summary: "BSD editline (libedit): line editing and history — the clang-repl line editor"
+  homepage: "https://www.thrysoee.dk/editline/"
+  license: "BSD-3-Clause"
+
+  # Lives in tome-core (not world): the managed llvm's clang-repl links libedit, and a core rune
+  # cannot depend on a world package. Packaged so clang-repl links the managed static libedit
+  # instead of host /usr/lib/libedit under --hermetic. libedit drives the terminal through ncursesw
+  # (terminfo), so it carries ncurses as both a build and a runtime dep.
+  sources: {
+    main: {
+      url: "https://www.thrysoee.dk/editline/libedit-20240808-3.1.tar.gz"
+      sha256: "sha256:5f0573349d77c4a48967191cdd6634dd7aa5f6398c6a57fe037cc02696d6099f"
+    }
+  }
+
+  # Static-only, like zlib/ncurses: consumers link libedit.a (+ libncursesw.a) at build time.
+  # ncurses is also a runtime dep — ncursesw bakes its store terminfo path, which the consumer
+  # carries (see ncurses.rn).
+  deps: {
+    build: { default: ["gmake" "ncurses"] }
+    runtime: ["ncurses"]
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "libedit-20240808-3.1")
+  cd $source_dir
+  # drop autoconf's default -g for purity. libedit's tgetent probe searches termcap/ncurses/curses
+  # but not the wide ncursesw; preset LIBS so the link test resolves tgetent from the managed widec
+  # library (its headers/lib come from the ncurses build dep's CPATH/LIBRARY_PATH).
+  $env.CFLAGS = "-O2"
+  $env.LIBS = "-lncursesw"
+  ./configure --prefix=($ctx.prefix) --enable-static --disable-shared --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+}
