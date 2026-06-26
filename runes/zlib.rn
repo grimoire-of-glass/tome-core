@@ -12,6 +12,10 @@ export const package = {
     }
   }
 
+  # Lives in tome-core (not tome-world): rust — a core package — links the static libz, and a core
+  # rune cannot depend on a world package without inverting the bootstrap layering. World consumers
+  # (curl, git, …) resolve it here, the legal world->core direction.
+  #
   # Static-only: consumers link libz.a at build time and carry no runtime reference,
   # so zlib is a build dep for them, never a runtime dep.
   deps: {

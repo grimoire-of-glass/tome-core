@@ -48,9 +48,11 @@ export const package = {
   deps: {
     # rust-stage0 seeds; llvm provides llvm-config (1.96 needs >= 21); python3 runs x.py; cmake/make
     # build vendored -sys crates. openssl is linked static into cargo (see build) so cargo carries no
-    # host openssl. libcxx (musl only): the managed llvm is built against libc++, so librustc_driver.so
-    # links -lc++; declaring it gives LIBCXX_PREFIX (the exact installed PIC libc++, not a store glob).
-    build: { default: ["rust-stage0" { name: "llvm", version: ">=21" } "python3-minimal" "cmake" "gmake" "openssl" "libcxx[linux-*-musl]"] }
+    # host openssl. zlib puts the managed static libz.a on LIBRARY_PATH so rustc's `-lz` resolves to it
+    # instead of host /usr/lib/libz (static, so no runtime ref). libcxx (musl only): the managed llvm is
+    # built against libc++, so librustc_driver.so links -lc++; declaring it gives LIBCXX_PREFIX (the
+    # exact installed PIC libc++, not a store glob).
+    build: { default: ["rust-stage0" { name: "llvm", version: ">=21" } "python3-minimal" "cmake" "gmake" "openssl" "zlib" "libcxx[linux-*-musl]"] }
     # toolchain-wrappers puts `cc` (the managed clang) on PATH, which rustc invokes for every link.
     # On musl the host tools are dynamic with PT_INTERP at musl's in-store loader, so musl must stay
     # installed for rustc to run (macOS links against the SDK).
