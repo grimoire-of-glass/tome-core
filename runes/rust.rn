@@ -52,7 +52,7 @@ export const package = {
     # instead of host /usr/lib/libz (static, so no runtime ref). libcxx (musl only): the managed llvm is
     # built against libc++, so librustc_driver.so links -lc++; declaring it gives LIBCXX_PREFIX (the
     # exact installed PIC libc++, not a store glob).
-    build: { default: ["rust-stage0" { name: "llvm", version: ">=21" } "python3-minimal" "cmake" "gmake" "openssl" "zlib" "libcxx[linux-*-musl]"] }
+    build: { default: ["rust-stage0" { name: "llvm", version: ">=21" } "python3" "cmake" "gmake" "openssl" "zlib" "libcxx[linux-*-musl]"] }
     # toolchain-wrappers puts `cc` (the managed clang) on PATH, which rustc invokes for every link.
     # On musl the host tools are dynamic with PT_INTERP at musl's in-store loader, so musl must stay
     # installed for rustc to run (macOS links against the SDK).

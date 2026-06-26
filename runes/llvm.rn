@@ -25,7 +25,7 @@ export const package = {
   # clang-repl builds without it there. The clang package carries the matching libedit/libxml2 runtime
   # deps for its split-out binaries.
   deps: {
-    build: { default: ["cmake" "gmake" "python3-minimal" "zlib" "zstd" "libxml2" "libedit[macos-*]" "libcxx[linux-*-musl]"] }
+    build: { default: ["cmake" "gmake" "python3" "zlib" "zstd" "libxml2" "libedit[macos-*]" "libcxx[linux-*-musl]"] }
     runtime: ["libxml2"]
   }
 

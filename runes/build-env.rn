@@ -21,7 +21,7 @@ export const package = {
   #
   # Note: declaring build-env yields no useful `<DEP>_PREFIX` variables (it has no
   # contents of its own). A rune that needs a concrete prefix — `$env.LLVM_PREFIX`,
-  # `$env.PYTHON3_MINIMAL_PREFIX` — must declare that package directly, alongside build-env.
+  # `$env.PYTHON3_PREFIX` — must declare that package directly, alongside build-env.
   notes: [
     "installed explicitly, build-env pins the managed toolchain (kept across `grm clean`) but"
     "keeps it off your PATH — it is build machinery, not user commands. Pulled in as a build dep"
@@ -39,7 +39,7 @@ export const package = {
       "toolchain-wrappers"
       "cmake"
       "gmake"
-      "python3-minimal"
+      "python3"
       # Userland floor (replaced toybox): a POSIX shell, awk, coreutils, sed, grep — enough for
       # autotools configure without leaning on the host /usr/bin tail.
       "dash"
