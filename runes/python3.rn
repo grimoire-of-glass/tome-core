@@ -1,0 +1,62 @@
+export const package = {
+  name: "python3"
+  version: "3.14.6"
+  summary: "Python 3: the interpreter and full standard library"
+  homepage: "https://www.python.org/"
+  license: "PSF-2.0"
+
+  # Supersedes the bootstrap-only python3-minimal: a single full interpreter serves both the
+  # toolchain bootstrap (rust's x.py, LLVM) and user use. Every optional stdlib module's backing
+  # library is now packaged in core, so nothing is skipped — no need to maintain two Pythons.
+  replaces: ["python3-minimal"]
+
+  sources: {
+    main: {
+      url: "https://www.python.org/ftp/python/3.14.6/Python-3.14.6.tar.xz"
+      sha256: "sha256:143b1dddefaec3bd2e21e3b839b34a2b7fb9842272883c576420d605e9f30c63"
+    }
+    # aports cgit 403s non-allowlisted User-Agents and its `?h=3.21-stable` ref is a moving branch.
+    # Fetch the byte-identical patch from the GitHub aports mirror at an immutable commit instead.
+    musl_patch: {
+      url: "https://raw.githubusercontent.com/alpinelinux/aports/377830503560754191095d9594541a8625af8448/main/python3/musl-find_library.patch"
+      sha256: "sha256:83fd071bc556d4e88373a35fde74cb9c464ee4b8e95e5583b55f2e36d4f33cf2"
+      platform: "linux-*-musl"
+    }
+  }
+
+  deps: {
+    # Module backings: openssl (_ssl/_hashlib), zlib, bzip2 (_bz2), xz (_lzma), sqlite (sqlite3),
+    # libffi (_ctypes), ncurses (_curses), libedit (readline). gmake drives the build.
+    build: { default: ["gmake" "openssl" "zlib" "bzip2" "xz" "sqlite" "libffi" "ncurses" "libedit"] }
+    # Runtime references: openssl (libssl/libcrypto dylib) and libedit (readline dylib) link shared by
+    # store path; ncurses for the terminfo database its baked path points at. The rest link static
+    # into the module .so files, leaving no runtime reference.
+    runtime: ["openssl" "libedit" "ncurses"]
+  }
+}
+
+export def build [ctx] {
+  let nproc = $ctx.nproc
+  let source_dir = ($ctx.sources.main.dir | path join "Python-3.14.6")
+  cd $source_dir
+
+  # The find_library patch teaches ctypes musl's library naming; it is wrong for glibc, so gate on
+  # the musl ABI rather than the OS.
+  if ($ctx.target | str ends-with "-musl") {
+    let patch_path = ($ctx.sources.musl_patch.path)
+    patch -p1 -i $patch_path
+    # musl is static-only in the store, so the interpreter links fully static — and a static binary
+    # can't dlopen .so extension modules. MODULE_BUILDTYPE=static compiles every module in instead.
+    $env.MODULE_BUILDTYPE = "static"
+    # AX_C_FLOAT_WORDS_BIGENDIAN's probe is inconclusive under clang; every Grimoire target is LE.
+    $env.ax_cv_c_float_words_bigendian = "no"
+  }
+
+  # Full interpreter: ship ensurepip and the test modules, and build every optional module against
+  # the managed libs declared above. --with-openssl points _ssl/_hashlib at the managed openssl;
+  # --with-readline=editline uses the managed libedit; --with-system-ffi uses the managed libffi for
+  # _ctypes; zlib/bz2/lzma/sqlite/curses auto-detect from the deps' CPATH/LIBRARY_PATH.
+  ./configure --prefix=($ctx.prefix) --with-openssl=($env.OPENSSL_PREFIX) --with-readline=editline --with-system-ffi
+  make -j($nproc)
+  make install DESTDIR=($ctx.package_dir)
+}
