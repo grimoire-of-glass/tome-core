@@ -78,8 +78,15 @@ export def build [ctx] {
   # drops clang's empty default C++ include dir; --unwindlib=libunwind matches the compiler-rt build
   # (llvm defaults UNWINDLIB=none for C). libc++abi is folded into libc++.a, so no separate -lc++abi.
   # libcxx is musl-only; macOS C++ resolves through the SDK, so these stay empty there.
+  #
+  # The libc++ headers/libs are gated at runtime on GRIMOIRE_SUPPRESS_LIBCXX, which grm sets when
+  # building libcxx itself (build_env_for_target). Without the gate, libcxx's own build sees both this
+  # installed libc++ AND its fresh in-tree tree; they share `<string.h>`'s include guard, so the
+  # installed one shadows the fresh `#include_next` and musl's C symbols never resolve. -nostdinc++
+  # stays unconditional — the fresh in-tree headers supply the stdlib for that build.
   let is_musl = ($ctx.target | str ends-with "-musl")
-  let cxx_flags = if $is_musl { $" -nostdinc++ -isystem ($env.LIBCXX_PREFIX)/include/c++/v1 -L($env.LIBCXX_PREFIX)/lib --unwindlib=libunwind" } else { "" }
+  let cxx_base = if $is_musl { " -nostdinc++" } else { "" }
+  let cxx_libcxx = if $is_musl { $" -isystem ($env.LIBCXX_PREFIX)/include/c++/v1 -L($env.LIBCXX_PREFIX)/lib --unwindlib=libunwind" } else { "" }
   let drivers = ["cc" "c++" "gcc" "g++"]
   let cxx_drivers = ["c++" "g++"]
 
@@ -96,10 +103,18 @@ export def build [ctx] {
     let wrapper_target = ($wrappers | get $key)
     let is_driver = ($key in $drivers)
     let is_cxx = ($key in $cxx_drivers)
-    let flags = (if $is_cxx { $"($driver_flags)($cxx_flags)" } else if $is_driver { $driver_flags } else { "" })
+    let base_flags = (if $is_driver { $driver_flags } else { "" })
     let preamble = (if $is_driver { $sdk_preamble } else { "" })
     let wrapper_path = ($ctx.package_dir | path join "bin" $key)
-    $"#!/usr/bin/env sh\n($preamble)exec '($wrapper_target)'($flags) \"$@\"\n" | save $wrapper_path
+    # C++ drivers on musl emit a shell that drops the libc++ injection when GRIMOIRE_SUPPRESS_LIBCXX
+    # is set (libcxx's own build); every other wrapper is a plain exec. Built by string concatenation,
+    # not `$"..."`, so the literal shell `$VARS` are not read as Nushell interpolations.
+    let body = if ($is_cxx and $is_musl) {
+      "GRM_CXXLIB='" + $cxx_libcxx + "'\n[ -n \"$GRIMOIRE_SUPPRESS_LIBCXX\" ] && GRM_CXXLIB=\nexec '" + $wrapper_target + "'" + $base_flags + $cxx_base + "$GRM_CXXLIB \"$@\"\n"
+    } else {
+      $"exec '($wrapper_target)'($base_flags) \"$@\"\n"
+    }
+    $"#!/usr/bin/env sh\n($preamble)($body)" | save $wrapper_path
     ^chmod +x $wrapper_path
   }
 }
