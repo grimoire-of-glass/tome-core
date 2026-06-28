@@ -18,7 +18,7 @@ export const package = {
   }
 
   deps: {
-    build: { default: ["gmake"] }
+    build: { default: ["gmake" "libiconv[macos-*]"] }
     runtime: []
   }
 }
