@@ -21,7 +21,7 @@ export const package = {
   # for the editline probe (see build). libedit is the CLI's shared runtime dep (self-contains
   # ncursesw, so no separate host libncurses); zlib links static.
   deps: {
-    build: { default: ["gmake" "zlib" "libedit" "ncurses"] }
+    build: { default: ["gmake" "gsed" "zlib" "libedit" "ncurses"] }
     runtime: ["libedit"]
   }
 
@@ -45,8 +45,11 @@ export def build [ctx] {
   ./configure --prefix=($ctx.prefix) --enable-static --disable-shared --with-pic --enable-editline --disable-readline --disable-dependency-tracking
   # libtool rewrites a bare `-ledit` to a host path from its own search; patch the Makefile to link
   # the managed libedit by absolute path (honored verbatim) and drop `-ltinfo` — the managed libedit
-  # dylib self-contains ncursesw, so no separate terminfo lib is needed at link time.
-  sed -i $"s|-ledit |($env.LIBEDIT_PREFIX)/lib/libedit.dylib |g; s| -ltinfo||g" Makefile
+  # shared lib self-contains ncursesw, so no separate terminfo lib is needed at link time. Use the
+  # managed GNU sed (`gsed`): a bare `sed` is BSD on macOS and on BSD-userland Linux (Chimera ships
+  # chimerautils), which rejects GNU `-i` in-place syntax. Suffix is .dylib on macOS, .so elsewhere.
+  let lib_ext = if ($ctx.target | str starts-with "macos-") { "dylib" } else { "so" }
+  gsed -i $"s|-ledit |($env.LIBEDIT_PREFIX)/lib/libedit.($lib_ext) |g; s| -ltinfo||g" Makefile
   make -j ($ctx.nproc)
   make install DESTDIR=($ctx.package_dir)
 }
