@@ -1,0 +1,37 @@
+export const package = {
+  name: "findutils"
+  version: "4.10.0"
+  summary: "GNU findutils: find and xargs"
+  meta: {
+    homepage: "https://www.gnu.org/software/findutils/"
+    license: "GPL-3.0-or-later"
+  }
+
+  # Floor userland: `find` (and `xargs`), which configure scripts and Makefiles invoke
+  # unconditionally — the host /usr/bin find is stripped in the hermetic sandbox and uutils
+  # coreutils ships none, so the floor must carry its own. Built with gmake and the floor's POSIX
+  # userland; the build itself needs neither find nor cmp (only `make dist` does), so it bootstraps
+  # cleanly before they land.
+  sources: {
+    main: {
+      url: "https://ftp.gnu.org/gnu/findutils/findutils-4.10.0.tar.xz"
+      sha256: "sha256:1387e0b67ff247d2abde998f90dfbf70c1491391a59ddfecb8ae698789f0a4f5"
+    }
+  }
+
+  deps: {
+    build: { default: ["gmake"] }
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "findutils-4.10.0")
+  cd $source_dir
+  # --disable-nls keeps it off gettext; dependency tracking is one-shot waste.
+  # drop autoconf's default -g so the temp build dir isn't baked into the binary (purity lint)
+  $env.CFLAGS = "-O2"
+  ./configure --prefix=($ctx.prefix) --disable-nls --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+}

@@ -42,13 +42,15 @@ export const package = {
       "cmake"
       "gmake"
       "python3"
-      # Userland floor (replaced toybox): a POSIX shell, awk, coreutils, sed, grep — enough for
-      # autotools configure without leaning on the host /usr/bin tail.
+      # Userland floor (replaced toybox): a POSIX shell, awk, coreutils, sed, grep, find, cmp —
+      # enough for autotools configure without leaning on the host /usr/bin tail.
       "dash"
       "mawk"
       "uutils"
       "gsed"
       "ggrep"
+      "findutils"
+      "diffutils"
       "linux-headers[linux]"
       "musl[linux]"
     ]

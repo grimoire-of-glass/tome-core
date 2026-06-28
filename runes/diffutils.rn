@@ -1,0 +1,37 @@
+export const package = {
+  name: "diffutils"
+  version: "3.12"
+  summary: "GNU diffutils: cmp, diff, diff3, sdiff"
+  meta: {
+    homepage: "https://www.gnu.org/software/diffutils/"
+    license: "GPL-3.0-or-later"
+  }
+
+  # Floor userland: `cmp` (and `diff`), the autotools move-if-change idiom
+  # (`cmp -s new old || mv new old`) that configure scripts and Makefiles lean on — the host
+  # /usr/bin cmp is stripped in the hermetic sandbox and no coreutils ships it, so the floor must
+  # carry its own. Built with gmake and the floor's POSIX userland; the build itself needs neither
+  # cmp nor find (only `make dist` does), so it bootstraps cleanly before they land.
+  sources: {
+    main: {
+      url: "https://ftp.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz"
+      sha256: "sha256:7c8b7f9fc8609141fdea9cece85249d308624391ff61dedaf528fcb337727dfd"
+    }
+  }
+
+  deps: {
+    build: { default: ["gmake"] }
+    runtime: []
+  }
+}
+
+export def build [ctx] {
+  let source_dir = ($ctx.sources.main.dir | path join "diffutils-3.12")
+  cd $source_dir
+  # --disable-nls keeps it off gettext; dependency tracking is one-shot waste.
+  # drop autoconf's default -g so the temp build dir isn't baked into the binary (purity lint)
+  $env.CFLAGS = "-O2"
+  ./configure --prefix=($ctx.prefix) --disable-nls --disable-dependency-tracking
+  make -j ($ctx.nproc)
+  make install DESTDIR=($ctx.package_dir)
+}
