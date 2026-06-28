@@ -26,6 +26,9 @@ export const package = {
 export def build [ctx] {
   let source_dir = ($ctx.sources.main.dir | path join "tar-1.35")
   cd $source_dir
+  if ($ctx.target | str starts-with "macos-") {
+    $env.LIBS = "-liconv"
+  }
   $env.CFLAGS = "-O2"
   ./configure --prefix=($ctx.prefix) --disable-nls --disable-dependency-tracking
   make -j ($ctx.nproc)
